@@ -43,9 +43,9 @@ cover-letter/
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /login, /history, /resumes
+│       ├── app/              # 페이지: / (대시보드), /login, /projects/[id], /resumes
 │       ├── components/       # sidebar, auth, evaluation-card/stream 등
-│       └── lib/              # api.ts (FastAPI 호출), supabase.ts
+│       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD), supabase.ts
 ├── data/data.txt             # 합격 자소서 39건 원본
 ├── .env                      # SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY
 ├── frontend/.env.local       # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -66,6 +66,24 @@ cover-letter/
 - 평가 SSE 스트리밍: 각 평가관 결과를 실시간으로 프론트에 전달
 - Supabase Auth + RLS: 사용자별 데이터 격리
 - 개발 모드: localhost에서 localStorage dev_mode=true로 인증 바이패스
+
+## 프로젝트 플로우
+
+- 메인 대시보드(`/`) → 프로젝트 카드 목록 (status: draft/ready/generated/evaluated)
+- 프로젝트 생성 → 채용공고 입력 → 자동 분석 → `/projects/[id]`로 이동
+- 프로젝트 상세(`/projects/[id]`) → 4단계 위자드: 채용공고 → 이력서 → 작성설정 → 결과
+- 프로젝트 데이터는 `generations` 테이블 재사용 (별도 테이블 없음)
+
+## 알려진 버그 (TODO)
+
+### PATCH /api/projects/{id} — 500 에러 + CORS
+
+- **증상**: 이력서 선택 후 저장 시 `PATCH /api/projects/{id}` 500 + CORS 에러
+- **원인 분석**: `api/main.py:418`의 `result.data[0]`에서 빈 결과 접근 가능성. RLS가 활성화된 상태에서 Supabase `.update()`가 0건 매칭 → `result.data`가 빈 리스트 → `IndexError` → 500. 500 응답에 CORS 헤더 누락되어 브라우저에서 CORS 에러도 함께 표시됨.
+- **수정 방향**:
+  1. `update_project`에서 `result.data`가 비었을 때 404 반환
+  2. 다른 엔드포인트(`create_project`, `save_generation` 등)도 동일 패턴 수정
+  3. Supabase RLS 정책 확인 — 로그인 사용자가 본인 프로젝트 업데이트 가능한지 검증
 
 ## 코드 컨벤션
 

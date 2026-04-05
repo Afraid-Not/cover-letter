@@ -4,13 +4,14 @@
 
 ## 주요 기능
 
+- **프로젝트 대시보드** — 자소서를 프로젝트 단위로 관리 (draft → ready → generated → evaluated)
+- **4단계 위자드** — 채용공고 입력 → 이력서 선택 → 작성 설정 → 생성 & 평가
 - **자소서 자동 생성** — 합격 자소서 136건 RAG 기반, 사람이 쓴 것처럼 자연스러운 문체
 - **9명 AI 평가관** — HR 인사담당자 3명 + 현업 팀장 3명 + 채용 리더 3명이 실시간 SSE 스트리밍으로 평가
 - **채용공고 분석** — 텍스트 복붙 또는 스크린샷 업로드 (GPT-4o Vision)
 - **이력서 관리** — PDF/텍스트 업로드, 파싱 후 Supabase에 저장하여 재사용
 - **일반 자소서 / 질문 답변** 모드 지원
 - **피드백 반영 재생성** — 평가 결과 기반 자동 개선
-- **생성 이력** — DB 저장 + 다시보기
 
 ## 기술 스택
 
@@ -117,7 +118,7 @@ python -m src.cli embed
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI 백엔드 (REST + SSE)
+├── api/main.py              # FastAPI 백엔드 (REST + SSE + 프로젝트 CRUD)
 ├── src/
 │   ├── embedder.py           # 합격 자소서 → Parent-Child 청킹 → 임베딩
 │   ├── parser.py             # 이력서 파싱 + Supabase 저장/조회
@@ -127,6 +128,11 @@ cover-letter/
 │   ├── evaluator.py          # 9명 LLM-as-a-Judge 평가
 │   └── cli.py                # Typer CLI
 ├── frontend/                 # Next.js 대시보드
+│   └── src/app/
+│       ├── page.tsx           # 프로젝트 대시보드 (메인)
+│       ├── projects/[id]/     # 프로젝트 상세 (4단계 위자드)
+│       ├── login/             # 로그인
+│       └── resumes/           # 이력서 관리
 ├── data/data.txt             # 합격 자소서 원본 (39건)
 ├── PLAN.md                   # 상세 기획 문서
 └── CLAUDE.md                 # 개발 컨텍스트

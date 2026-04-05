@@ -6,13 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 
 const NAV_ITEMS = [
-  { href: "/", label: "자소서 생성", icon: "edit", desc: "AI 자소서 작성" },
-  {
-    href: "/history",
-    label: "생성 이력",
-    icon: "history",
-    desc: "이전 결과 보기",
-  },
+  { href: "/", label: "자소서 관리", icon: "edit", desc: "프로젝트 대시보드" },
   {
     href: "/resumes",
     label: "이력서 관리",
@@ -101,7 +95,10 @@ export const Sidebar = () => {
           메뉴
         </p>
         {NAV_ITEMS.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive =
+            item.href === "/"
+              ? pathname === "/" || pathname.startsWith("/projects")
+              : pathname === item.href;
           return (
             <Link
               key={item.href}

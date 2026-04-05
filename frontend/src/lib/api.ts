@@ -94,6 +94,49 @@ export const api = {
       body: JSON.stringify(data),
     }).then((r) => r.json()),
 
+  // ── 프로젝트 CRUD ──
+
+  createProject: async (job_posting: string): Promise<Project> => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/projects`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ job_posting }),
+    }).then((r) => r.json());
+  },
+
+  listProjects: async (): Promise<Project[]> => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/projects`, { headers }).then((r) => r.json());
+  },
+
+  getProject: async (id: number): Promise<Project> => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/projects/${id}`, { headers }).then((r) =>
+      r.json(),
+    );
+  },
+
+  updateProject: async (
+    id: number,
+    data: Partial<Project>,
+  ): Promise<Project> => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/projects/${id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(data),
+    }).then((r) => r.json());
+  },
+
+  deleteProject: async (id: number): Promise<void> => {
+    const headers = await getAuthHeaders();
+    await fetch(`${API_BASE}/api/projects/${id}`, {
+      method: "DELETE",
+      headers,
+    });
+  },
+
   evaluateStream: async (
     data: {
       question: string;
@@ -135,6 +178,40 @@ export const api = {
 
     return summary!;
   },
+};
+
+// ── 프로젝트 타입 ──
+
+export interface Project {
+  id: number;
+  job_posting: string;
+  job_analysis: {
+    company: string;
+    position: string;
+    required_skills: string[];
+    preferred_skills: string[];
+    responsibilities: string[];
+    keywords: string[];
+    culture_keywords: string[];
+    experience_level: string;
+  };
+  question: string;
+  mode: string;
+  char_limit: number | null;
+  resume_id: number | null;
+  answer: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  evaluation: any | null;
+  created_at: string;
+}
+
+export type ProjectStatus = "draft" | "ready" | "generated" | "evaluated";
+
+export const getProjectStatus = (p: Project): ProjectStatus => {
+  if (p.evaluation) return "evaluated";
+  if (p.answer) return "generated";
+  if (p.resume_id) return "ready";
+  return "draft";
 };
 
 export interface EvaluatorEvent {

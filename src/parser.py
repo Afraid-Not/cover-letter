@@ -11,7 +11,7 @@ from supabase import create_client
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY"))
 
 PARSE_SYSTEM_PROMPT = """당신은 이력서 파싱 전문가입니다.
 주어진 이력서 텍스트에서 다음 정보를 JSON으로 추출하세요.

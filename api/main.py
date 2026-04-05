@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import tempfile
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -51,9 +51,53 @@ class SaveGenerationRequest(BaseModel):
     evaluation: dict | None = None
     char_limit: int | None = None
 
+class CreateProjectRequest(BaseModel):
+    job_posting: str
+
+class UpdateProjectRequest(BaseModel):
+    resume_id: int | None = None
+    question: str | None = None
+    mode: str | None = None
+    char_limit: int | None = None
+    answer: str | None = None
+    evaluation: dict | None = None
+    job_posting: str | None = None
+    job_analysis: dict | None = None
+
 class ResumeRequest(BaseModel):
     source: str
     name: str | None = None
+
+
+# ── Supabase 헬퍼 ──
+
+def _get_sb(token: str | None = None):
+    import os
+    from supabase import create_client
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+    sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+    if token:
+        sb.postgrest.auth(token)
+    return sb
+
+
+def _extract_token(request: Request) -> str | None:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return None
+
+
+def _get_user_id(token: str) -> str | None:
+    import json, base64
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (4 - len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        return data.get("sub")
+    except Exception:
+        return None
 
 
 # ── Endpoints ──
@@ -157,13 +201,19 @@ async def evaluate_stream_endpoint(req: EvaluateRequest):
 @app.get("/api/resumes")
 async def list_resumes():
     from src.parser import list_resumes
-    return list_resumes()
+    try:
+        return list_resumes()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"이력서 목록 조회 실패: {e}")
 
 
 @app.post("/api/resumes")
 async def add_resume(req: ResumeRequest):
     from src.parser import process_resume
-    return process_resume(req.source, req.name)
+    try:
+        return process_resume(req.source, req.name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"이력서 등록 실패: {e}")
 
 
 @app.post("/api/resumes/upload")
@@ -174,16 +224,19 @@ async def upload_resume(file: UploadFile = File(...), name: str = Form("")):
     suffix = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
     content = await file.read()
 
-    if suffix == "pdf":
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        result = process_resume(tmp_path, name or file.filename)
-        import os
-        os.unlink(tmp_path)
-    else:
-        text = content.decode("utf-8")
-        result = process_resume(text, name or file.filename)
+    try:
+        if suffix == "pdf":
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            result = process_resume(tmp_path, name or file.filename)
+            import os
+            os.unlink(tmp_path)
+        else:
+            text = content.decode("utf-8")
+            result = process_resume(text, name or file.filename)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"이력서 업로드 실패: {e}")
 
     return result
 
@@ -191,7 +244,10 @@ async def upload_resume(file: UploadFile = File(...), name: str = Form("")):
 @app.get("/api/resumes/{resume_id}")
 async def get_resume(resume_id: int):
     from src.parser import get_resume
-    return get_resume(resume_id)
+    try:
+        return get_resume(resume_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"이력서 조회 실패: {e}")
 
 
 @app.post("/api/parse-image")
@@ -244,9 +300,12 @@ async def list_generations():
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).parent.parent / ".env")
     sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-    result = sb.table("generations").select(
-        "id, question, mode, char_limit, created_at, job_analysis->company, job_analysis->position"
-    ).order("created_at", desc=True).limit(50).execute()
+    try:
+        result = sb.table("generations").select(
+            "id, question, mode, char_limit, created_at, job_analysis->company, job_analysis->position"
+        ).order("created_at", desc=True).limit(50).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"생성 이력 조회 실패: {e}")
     return result.data
 
 
@@ -258,16 +317,19 @@ async def save_generation(req: SaveGenerationRequest):
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).parent.parent / ".env")
     sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-    result = sb.table("generations").insert({
-        "job_posting": req.job_posting,
-        "job_analysis": req.job_analysis,
-        "question": req.question,
-        "mode": req.mode,
-        "resume_id": req.resume_id,
-        "answer": req.answer,
-        "evaluation": req.evaluation,
-        "char_limit": req.char_limit,
-    }).execute()
+    try:
+        result = sb.table("generations").insert({
+            "job_posting": req.job_posting,
+            "job_analysis": req.job_analysis,
+            "question": req.question,
+            "mode": req.mode,
+            "resume_id": req.resume_id,
+            "answer": req.answer,
+            "evaluation": req.evaluation,
+            "char_limit": req.char_limit,
+        }).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"생성 이력 저장 실패: {e}")
     return result.data[0]
 
 
@@ -279,5 +341,90 @@ async def get_generation(gen_id: int):
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).parent.parent / ".env")
     sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-    result = sb.table("generations").select("*").eq("id", gen_id).single().execute()
+    try:
+        result = sb.table("generations").select("*").eq("id", gen_id).single().execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"생성 이력 상세 조회 실패: {e}")
     return result.data
+
+
+# ── 프로젝트 (자소서 카드) ──
+
+@app.post("/api/projects")
+async def create_project(req: CreateProjectRequest, request: Request):
+    """채용공고로 프로젝트 생성 (자동 분석 포함)."""
+    token = _extract_token(request)
+    user_id = _get_user_id(token) if token else None
+
+    from src.analyzer import analyze_job_posting
+    job_analysis = analyze_job_posting(req.job_posting)
+
+    sb = _get_sb(token)
+    insert_data = {
+        "job_posting": req.job_posting,
+        "job_analysis": job_analysis,
+        "question": "",
+        "mode": "general",
+        "answer": "",
+    }
+    if user_id:
+        insert_data["user_id"] = user_id
+
+    try:
+        result = sb.table("generations").insert(insert_data).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB insert failed: {e}")
+    return result.data[0]
+
+
+@app.get("/api/projects")
+async def list_projects(request: Request):
+    """프로젝트 목록 조회."""
+    token = _extract_token(request)
+    sb = _get_sb(token)
+    try:
+        result = sb.table("generations").select(
+            "id, question, mode, char_limit, created_at, answer, evaluation, job_analysis, job_posting"
+        ).order("created_at", desc=True).limit(50).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB query failed: {e}")
+    return result.data
+
+
+@app.get("/api/projects/{project_id}")
+async def get_project(project_id: int, request: Request):
+    """프로젝트 상세 조회."""
+    token = _extract_token(request)
+    sb = _get_sb(token)
+    try:
+        result = sb.table("generations").select("*").eq("id", project_id).single().execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB query failed: {e}")
+    return result.data
+
+
+@app.patch("/api/projects/{project_id}")
+async def update_project(project_id: int, req: UpdateProjectRequest, request: Request):
+    """프로젝트 필드 업데이트."""
+    token = _extract_token(request)
+    sb = _get_sb(token)
+    update_data = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(400, "업데이트할 필드가 없습니다")
+    try:
+        result = sb.table("generations").update(update_data).eq("id", project_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB update failed: {e}")
+    return result.data[0]
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: int, request: Request):
+    """프로젝트 삭제."""
+    token = _extract_token(request)
+    sb = _get_sb(token)
+    try:
+        sb.table("generations").delete().eq("id", project_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB delete failed: {e}")
+    return {"ok": True}
