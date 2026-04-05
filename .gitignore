@@ -1,0 +1,12 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+node_modules/
+.next/
+frontend/.next/
+frontend/node_modules/
