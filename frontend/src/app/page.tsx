@@ -165,12 +165,15 @@ export default function GeneratePage() {
     (mode === "general" || question);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">자소서 생성</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          채용공고 + 이력서 + 질문을 입력하면 합격 자소서 기반으로 답변을
-          생성합니다
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-1 h-6 rounded-full bg-primary" />
+          <h2 className="text-2xl font-bold tracking-tight">자소서 생성</h2>
+        </div>
+        <p className="text-muted-foreground text-sm ml-3">
+          채용공고 + 이력서를 입력하면 합격 자소서 기반 RAG로 답변을 생성하고,
+          9명의 AI 평가관이 실시간으로 평가합니다
         </p>
       </div>
 

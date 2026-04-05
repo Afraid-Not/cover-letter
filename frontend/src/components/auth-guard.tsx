@@ -2,18 +2,23 @@
 
 import { useAuth } from "@/components/auth-provider";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [devMode, setDevMode] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user && pathname !== "/login") {
+    setDevMode(localStorage.getItem("dev_mode") === "true");
+  }, []);
+
+  useEffect(() => {
+    if (!loading && !user && !devMode && pathname !== "/login") {
       router.push("/login");
     }
-  }, [user, loading, pathname, router]);
+  }, [user, loading, devMode, pathname, router]);
 
   if (loading) {
     return (
@@ -23,7 +28,7 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  if (!user && pathname !== "/login") {
+  if (!user && !devMode && pathname !== "/login") {
     return null;
   }
 

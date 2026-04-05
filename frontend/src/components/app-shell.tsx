@@ -17,16 +17,22 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
   return (
     <AuthGuard>
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto p-8">
+      <main className="flex-1 overflow-y-auto noise-bg relative">
+        {/* Top ambient glow */}
+        <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/[0.04] rounded-full blur-[100px]" />
+
+        <div className="relative max-w-5xl mx-auto px-8 py-6">
           {user && (
-            <div className="flex justify-end mb-4">
-              <span className="text-xs text-muted-foreground">
-                {user.email}
-              </span>
+            <div className="flex justify-end mb-2">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/30 border border-border/50">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                <span className="text-[11px] text-muted-foreground">
+                  {user.email}
+                </span>
+              </div>
             </div>
           )}
-          {children}
+          <div className="animate-fade-in-up">{children}</div>
         </div>
       </main>
     </AuthGuard>

@@ -6,19 +6,29 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 
 const NAV_ITEMS = [
-  { href: "/", label: "자소서 생성", icon: "edit" },
-  { href: "/history", label: "생성 이력", icon: "history" },
-  { href: "/resumes", label: "이력서 관리", icon: "file" },
+  { href: "/", label: "자소서 생성", icon: "edit", desc: "AI 자소서 작성" },
+  {
+    href: "/history",
+    label: "생성 이력",
+    icon: "history",
+    desc: "이전 결과 보기",
+  },
+  {
+    href: "/resumes",
+    label: "이력서 관리",
+    icon: "file",
+    desc: "이력서 등록/관리",
+  },
 ];
 
 const ICONS: Record<string, ReactNode> = {
   edit: (
     <svg
-      className="w-5 h-5"
+      className="w-4 h-4"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      strokeWidth={1.5}
+      strokeWidth={2}
     >
       <path
         strokeLinecap="round"
@@ -29,11 +39,11 @@ const ICONS: Record<string, ReactNode> = {
   ),
   file: (
     <svg
-      className="w-5 h-5"
+      className="w-4 h-4"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      strokeWidth={1.5}
+      strokeWidth={2}
     >
       <path
         strokeLinecap="round"
@@ -44,11 +54,11 @@ const ICONS: Record<string, ReactNode> = {
   ),
   history: (
     <svg
-      className="w-5 h-5"
+      className="w-4 h-4"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      strokeWidth={1.5}
+      strokeWidth={2}
     >
       <path
         strokeLinecap="round"
@@ -64,43 +74,113 @@ export const Sidebar = () => {
   const { signOut } = useAuth();
 
   return (
-    <aside className="w-64 border-r border-border bg-card flex flex-col min-h-screen">
-      <div className="p-6 border-b border-border">
-        <h1 className="text-lg font-bold tracking-tight">Cover Letter</h1>
-        <p className="text-xs text-muted-foreground mt-1">
-          RAG + LLM-as-a-Judge
-        </p>
+    <aside className="w-72 border-r border-border/50 bg-sidebar flex flex-col min-h-screen relative">
+      {/* Subtle gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.03] to-transparent pointer-events-none" />
+
+      {/* Logo */}
+      <div className="relative p-6 pb-5">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
+            <span className="text-primary text-sm font-bold">CL</span>
+          </div>
+          <div>
+            <h1 className="text-sm font-semibold tracking-tight text-foreground">
+              Cover Letter
+            </h1>
+            <p className="text-[10px] text-muted-foreground tracking-widest uppercase">
+              Generator
+            </p>
+          </div>
+        </div>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
+      {/* Nav */}
+      <nav className="relative flex-1 px-3 space-y-0.5">
+        <p className="px-3 pb-2 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest">
+          메뉴
+        </p>
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+              className={`group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 ${
                 isActive
-                  ? "bg-accent text-accent-foreground font-medium"
+                  ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
               }`}
             >
-              {ICONS[item.icon]}
-              {item.label}
+              <span
+                className={`transition-colors ${isActive ? "text-primary" : "text-muted-foreground/70 group-hover:text-foreground"}`}
+              >
+                {ICONS[item.icon]}
+              </span>
+              <div>
+                <span
+                  className={`block leading-tight ${isActive ? "font-medium" : ""}`}
+                >
+                  {item.label}
+                </span>
+                <span className="block text-[10px] text-muted-foreground/50 leading-tight mt-0.5">
+                  {item.desc}
+                </span>
+              </div>
+              {isActive && (
+                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
+              )}
             </Link>
           );
         })}
       </nav>
 
-      <div className="p-4 border-t border-border space-y-3">
-        <div className="text-xs text-muted-foreground">
-          <p>합격 자소서 136건 기반</p>
-          <p>9명 평가관 시스템</p>
+      {/* Stats */}
+      <div className="relative px-3 pb-3">
+        <div className="rounded-lg border border-border/50 bg-accent/30 p-3">
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-2">
+            <span>데이터 현황</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="text-center p-1.5 rounded bg-background/50">
+              <p className="text-lg font-semibold text-primary leading-none">
+                136
+              </p>
+              <p className="text-[9px] text-muted-foreground mt-0.5">
+                합격 자소서
+              </p>
+            </div>
+            <div className="text-center p-1.5 rounded bg-background/50">
+              <p className="text-lg font-semibold text-foreground leading-none">
+                9
+              </p>
+              <p className="text-[9px] text-muted-foreground mt-0.5">
+                AI 평가관
+              </p>
+            </div>
+          </div>
         </div>
+      </div>
+
+      {/* Logout */}
+      <div className="relative px-3 pb-4">
         <button
           onClick={signOut}
-          className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors text-left"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-muted-foreground/60 hover:text-foreground hover:bg-accent/30 transition-all"
         >
+          <svg
+            className="w-3.5 h-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
+            />
+          </svg>
           로그아웃
         </button>
       </div>
