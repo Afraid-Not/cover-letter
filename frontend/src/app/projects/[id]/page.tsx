@@ -366,6 +366,7 @@ export default function ProjectPage({
         resume_text: selectedResumeId ? undefined : resumeText,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
         feedback: evalResult.aggregated_feedback,
+        previous_answer: answer,
       });
 
       setAnswer(result.answer);

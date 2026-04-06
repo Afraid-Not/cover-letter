@@ -44,6 +44,7 @@ class GenerateRequest(BaseModel):
     resume_text: str | None = None
     char_limit: int | None = None
     feedback: str | None = None
+    previous_answer: str | None = None
 
 class EvaluateRequest(BaseModel):
     question: str
@@ -148,6 +149,7 @@ async def generate(req: GenerateRequest):
         rag_results=rag_results,
         char_limit=req.char_limit,
         feedback=req.feedback,
+        previous_answer=req.previous_answer,
     )
 
     return {

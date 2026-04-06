@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AURA — Frontend
 
-## Getting Started
+AURA 자소서 생성 서비스의 Next.js 프론트엔드입니다.
 
-First, run the development server:
+## 기술 스택
+
+- **Next.js 16** (App Router)
+- **shadcn/ui** + **Tailwind CSS** — Soft/Pastel 다크 테마 (라벤더/바이올렛, primary hue 290)
+- **Supabase JS** — Auth 세션 관리, RLS
+
+## 개발 서버 실행
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+→ http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 환경 변수
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`.env.local` 파일이 필요합니다:
 
-## Learn More
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 페이지 구조
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| 경로               | 설명                                            |
+| ------------------ | ----------------------------------------------- |
+| `/`                | 프로젝트 대시보드 — 카드 목록, 새 프로젝트 생성 |
+| `/projects/[id]`   | 4단계 위자드: 채용공고 → 이력서 → 설정 → 결과   |
+| `/resumes`         | 이력서 관리                                     |
+| `/history`         | 생성 이력                                       |
+| `/login` `/signup` | 인증                                            |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 주요 컴포넌트
 
-## Deploy on Vercel
+- `app-shell` / `sidebar` — 레이아웃, hover 시 64px → 220px 펼침
+- `evaluation-card` / `evaluation-stream` — 9명 평가관 실시간 SSE 스트리밍 카드
+- `auth-guard` / `auth-provider` — Supabase 세션 기반 인증 래퍼
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## API 연동
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`src/lib/api.ts` — FastAPI(`localhost:8000`) 호출 래퍼. 주요 메서드:
+
+- `api.generate({ ..., feedback?, previous_answer? })` — 자소서 생성/재생성
+- `api.evaluateStream(data, onEvaluator)` — SSE 스트리밍 평가
+- `api.createProject` / `updateProject` / `deleteProject` — 프로젝트 CRUD

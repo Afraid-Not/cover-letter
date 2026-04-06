@@ -37,7 +37,7 @@ cover-letter/
 │   ├── parser.py             # 이력서 파싱 (텍스트/PDF) → 구조화 → Supabase 저장
 │   ├── analyzer.py           # 채용공고 텍스트 → 요구 역량/키워드 추출
 │   ├── retriever.py          # Supabase 벡터 유사도 검색 (Child 검색 + Parent 컨텍스트)
-│   ├── generator.py          # RAG + 이력서 + 채용공고 → 자소서 생성
+│   ├── generator.py          # RAG + 이력서 + 채용공고 → 자소서 생성/재생성
 │   ├── evaluator.py          # 9명 LLM-as-a-Judge 병렬 평가 + SSE 스트리밍
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
@@ -67,9 +67,31 @@ cover-letter/
 - 평가 SSE 스트리밍: 각 평가관 결과를 실시간으로 프론트에 전달
 - Supabase Auth + RLS: 사용자별 데이터 격리
 
+## 평가관 설계 (evaluator.py)
+
+9명 평가관은 그룹별로 서로 다른 `focus` 관점을 가져 피드백 중복을 방지한다:
+
+| 그룹          | 평가관 1              | 평가관 2                | 평가관 3            |
+| ------------- | --------------------- | ----------------------- | ------------------- |
+| HR 인사담당자 | 첫인상/형식 완성도    | 맞춤 작성 여부/구체성   | 진정성/스토리텔링   |
+| 현업 팀장     | 기술 스택 매칭        | 본인 기여도 구분 + 수치 | 논리 구조/사고 흐름 |
+| 채용 리더     | 성장 가능성/학습 능력 | 회사 비전과의 연결      | 차별화 포인트       |
+
+- temperature: 0.7 (다양성 확보)
+- `aggregate_feedback()`: 점수 낮은 항목 + 평가관별 피드백을 섹션 구분된 개선 지시 형태로 출력
+
+## 자소서 생성/재생성 (generator.py)
+
+- **초기 생성**: `GENERATE_SYSTEM_PROMPT` 사용
+- **피드백 재생성**: `REGENERATE_SYSTEM_PROMPT` 사용 (피드백 우선 반영 명시)
+  - `previous_answer` + `feedback`을 프롬프트 **최상단**에 배치 (묻히지 않도록)
+  - 이전 답변을 포함해서 모델이 구체적으로 무엇을 고쳐야 할지 파악 가능
+  - API: `GenerateRequest.previous_answer` 필드, 프론트: `handleRegenerate`에서 현재 `answer` state 전달
+
 ## UI 디자인
 
 - **테마**: Soft/Pastel 다크 — 라벤더/바이올렛 톤 (primary hue 290)
+- **다크모드 색상**: background `oklch(0.135)`, card `oklch(0.26)`, border `oklch(0.32)` — 충분한 명도 차이 확보
 - **사이드바**: hover 시 펼침 (64px → 220px), 고정 position
 - **프로젝트 카드**: 고정 높이, 좌측 상태 액센트 바, 부드러운 그림자
 - **결과 레이아웃**: 2-Column (자소서+피드백 좌 / 통과확률+평가카드 우)

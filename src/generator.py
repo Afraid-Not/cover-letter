@@ -27,6 +27,18 @@ GENERATE_SYSTEM_PROMPT = """당신은 자소서 작성 전문가입니다.
 - 각 문단의 첫 문장에 핵심을 담으세요.
 - 글자수 제한이 있으면 반드시 지키세요."""
 
+REGENERATE_SYSTEM_PROMPT = """당신은 자소서 개선 전문가입니다.
+이전에 작성된 자소서에 대해 실제 채용 담당자들의 평가 피드백이 있습니다.
+이 피드백을 **빠짐없이** 반영하여 자소서를 개선하세요.
+
+## 개선 원칙
+1. **피드백 우선** — 아래 제시된 피드백 항목을 하나씩 확인하며 반드시 반영하세요.
+2. **잘된 부분 유지** — 피드백이 없는 부분은 이전 답변의 강점을 그대로 살리세요.
+3. **구체성 강화** — 피드백에서 "구체적이지 않다"는 지적이 있으면 수치·결과·프로젝트명을 추가하세요.
+4. **사람이 쓴 것처럼** — AI 특유의 나열식 톤을 절대 쓰지 마세요.
+5. **내 경험 기반** — 이력서에 있는 실제 경험만 사용하세요. 허구를 만들지 마세요.
+6. **글자수 제한** — 글자수 제한이 있으면 반드시 지키세요."""
+
 
 def generate_answer(
     question: str,
@@ -35,16 +47,21 @@ def generate_answer(
     rag_results: list[dict],
     char_limit: int | None = None,
     feedback: str | None = None,
+    previous_answer: str | None = None,
 ) -> str:
     """자소서 답변을 생성한다."""
+    is_regen = bool(feedback and previous_answer)
+    system_prompt = REGENERATE_SYSTEM_PROMPT if is_regen else GENERATE_SYSTEM_PROMPT
+
     user_prompt = _build_user_prompt(
-        question, job_analysis, resume_structured, rag_results, char_limit, feedback
+        question, job_analysis, resume_structured, rag_results,
+        char_limit, feedback, previous_answer,
     )
 
     response = openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": GENERATE_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.7,
@@ -60,12 +77,23 @@ def _build_user_prompt(
     rag_results: list[dict],
     char_limit: int | None,
     feedback: str | None,
+    previous_answer: str | None,
 ) -> str:
-    """생성 프롬프트를 구성한다."""
+    """생성 프롬프트를 구성한다. 재생성 시 피드백을 상단에 배치한다."""
     parts = []
 
+    # 재생성: 피드백 + 이전 답변을 최상단에
+    if feedback and previous_answer:
+        parts.append("## ⚠️ 개선 지시 (최우선 반영)")
+        parts.append("아래 피드백은 실제 채용 담당자 9명이 이전 답변을 보고 남긴 평가입니다.")
+        parts.append("각 항목을 빠짐없이 반영해서 재작성하세요.\n")
+        parts.append(feedback)
+        parts.append(f"\n## 이전 답변 (위 피드백의 대상)")
+        parts.append(previous_answer)
+        parts.append("\n---")
+
     # 자소서 질문
-    parts.append(f"## 자소서 질문\n{question}")
+    parts.append(f"\n## 자소서 질문\n{question}")
     if char_limit:
         parts.append(f"(글자수 제한: {char_limit}자)")
 
@@ -91,13 +119,16 @@ def _build_user_prompt(
         parts.append(f"\n### 참고 {i+1} (유사도: {child.get('similarity', 0):.2f})")
         parts.append(child.get("answer", ""))
 
-    # 재생성 피드백
-    if feedback:
-        parts.append(f"\n## 이전 평가 피드백 (이 점을 반영해서 개선하세요)")
-        parts.append(feedback)
-
-    parts.append(f"\n## 작성 지시")
-    parts.append("위 정보를 바탕으로 자소서 답변을 작성하세요. 합격 자소서의 톤과 구조를 참고하되, 내 경험을 녹여서 작성하세요.")
+    # 최종 지시
+    if feedback and previous_answer:
+        parts.append(f"\n## 작성 지시")
+        parts.append(
+            "위 [개선 지시]의 모든 항목을 반영해서 자소서를 재작성하세요. "
+            "이전 답변에서 피드백 없는 강점은 유지하고, 지적된 부분만 집중적으로 개선하세요."
+        )
+    else:
+        parts.append(f"\n## 작성 지시")
+        parts.append("위 정보를 바탕으로 자소서 답변을 작성하세요. 합격 자소서의 톤과 구조를 참고하되, 내 경험을 녹여서 작성하세요.")
 
     return "\n".join(parts)
 

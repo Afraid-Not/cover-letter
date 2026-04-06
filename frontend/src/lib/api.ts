@@ -26,6 +26,7 @@ export const api = {
     resume_text?: string;
     char_limit?: number;
     feedback?: string;
+    previous_answer?: string;
   }) =>
     fetch(`${API_BASE}/api/generate`, {
       method: "POST",
