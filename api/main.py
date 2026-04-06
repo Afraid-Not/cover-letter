@@ -8,9 +8,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import tempfile
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 app = FastAPI(title="Cover Letter Generator API")
 
@@ -74,9 +77,8 @@ class ResumeRequest(BaseModel):
 def _get_sb(token: str | None = None):
     import os
     from supabase import create_client
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent.parent / ".env")
-    sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+    key = os.getenv("SUPABASE_KEY") if token else os.getenv("SUPABASE_SERVICE_ROLE_KEY", os.getenv("SUPABASE_KEY"))
+    sb = create_client(os.getenv("SUPABASE_URL"), key)
     if token:
         sb.postgrest.auth(token)
     return sb
@@ -281,7 +283,7 @@ async def parse_image(file: UploadFile = File(...)):
         messages=[{
             "role": "user",
             "content": [
-                {"type": "text", "text": "이 이미지는 채용공고 스크린샷입니다. 이미지에 있는 모든 텍스트를 빠짐없이 추출해주세요. 원문 그대로 출력하세요."},
+                {"type": "text", "text": "이 이미지에 있는 모든 텍스트를 빠짐없이 추출해주세요. 원문 그대로 출력하세요."},
                 {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
             ],
         }],
@@ -415,6 +417,8 @@ async def update_project(project_id: int, req: UpdateProjectRequest, request: Re
         result = sb.table("generations").update(update_data).eq("id", project_id).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB update failed: {e}")
+    if not result.data:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없거나 권한이 없습니다")
     return result.data[0]
 
 

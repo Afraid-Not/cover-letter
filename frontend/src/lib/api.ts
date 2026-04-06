@@ -122,11 +122,16 @@ export const api = {
     data: Partial<Project>,
   ): Promise<Project> => {
     const headers = await getAuthHeaders();
-    return fetch(`${API_BASE}/api/projects/${id}`, {
+    const r = await fetch(`${API_BASE}/api/projects/${id}`, {
       method: "PATCH",
       headers,
       body: JSON.stringify(data),
-    }).then((r) => r.json());
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || `프로젝트 업데이트 실패 (${r.status})`);
+    }
+    return r.json();
   },
 
   deleteProject: async (id: number): Promise<void> => {

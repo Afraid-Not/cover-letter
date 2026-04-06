@@ -94,7 +94,6 @@ npm run dev
 
 - 프론트엔드: http://localhost:3000
 - API 문서: http://localhost:8000/docs
-- 개발 모드: 로그인 페이지 하단 "개발 모드로 진입" (localhost 전용)
 
 ## CLI 사용법
 

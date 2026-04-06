@@ -26,7 +26,6 @@ npm run dev
 
 - FastAPI: http://localhost:8000 (docs: /docs)
 - Next.js: http://localhost:3000
-- 개발 모드: 로그인 페이지 하단 "개발 모드로 진입" 버튼 (localhost에서만 표시)
 
 ## 파일 구조
 
@@ -65,7 +64,6 @@ cover-letter/
 - 9명 평가관: 3그룹(HR/현업팀장/채용리더) × 3명, 채용공고 기반 동적 백그라운드
 - 평가 SSE 스트리밍: 각 평가관 결과를 실시간으로 프론트에 전달
 - Supabase Auth + RLS: 사용자별 데이터 격리
-- 개발 모드: localhost에서 localStorage dev_mode=true로 인증 바이패스
 
 ## 프로젝트 플로우
 
@@ -74,16 +72,13 @@ cover-letter/
 - 프로젝트 상세(`/projects/[id]`) → 4단계 위자드: 채용공고 → 이력서 → 작성설정 → 결과
 - 프로젝트 데이터는 `generations` 테이블 재사용 (별도 테이블 없음)
 
-## 알려진 버그 (TODO)
+## 해결된 버그
 
-### PATCH /api/projects/{id} — 500 에러 + CORS
+### PATCH /api/projects/{id} — 404 에러 (해결됨)
 
-- **증상**: 이력서 선택 후 저장 시 `PATCH /api/projects/{id}` 500 + CORS 에러
-- **원인 분석**: `api/main.py:418`의 `result.data[0]`에서 빈 결과 접근 가능성. RLS가 활성화된 상태에서 Supabase `.update()`가 0건 매칭 → `result.data`가 빈 리스트 → `IndexError` → 500. 500 응답에 CORS 헤더 누락되어 브라우저에서 CORS 에러도 함께 표시됨.
-- **수정 방향**:
-  1. `update_project`에서 `result.data`가 비었을 때 404 반환
-  2. 다른 엔드포인트(`create_project`, `save_generation` 등)도 동일 패턴 수정
-  3. Supabase RLS 정책 확인 — 로그인 사용자가 본인 프로젝트 업데이트 가능한지 검증
+- **증상**: 자소서 생성 후 결과가 DB에 저장되지 않아 다시 보기 불가
+- **원인**: `generations` 테이블에 UPDATE/DELETE RLS 정책 누락
+- **수정**: RLS에 UPDATE/DELETE 정책 추가 + 프론트엔드 `updateProject` 에러 체크 추가
 
 ## 코드 컨벤션
 

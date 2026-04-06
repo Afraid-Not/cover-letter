@@ -171,32 +171,6 @@ export default function LoginPage() {
                 {isSignUp ? "로그인" : "회원가입"}
               </button>
             </p>
-
-            {typeof window !== "undefined" &&
-              window.location.hostname === "localhost" && (
-                <>
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-card px-2 text-muted-foreground">
-                        DEV
-                      </span>
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="w-full text-muted-foreground"
-                    onClick={() => {
-                      localStorage.setItem("dev_mode", "true");
-                      window.location.href = "/";
-                    }}
-                  >
-                    개발 모드로 진입
-                  </Button>
-                </>
-              )}
           </CardContent>
         </Card>
       </div>
