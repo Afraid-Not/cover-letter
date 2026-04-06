@@ -8,22 +8,26 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 
-export default function LoginPage() {
+export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (password !== passwordConfirm) {
+      setError("비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { error } = await supabase.auth.signUp({ email, password });
       if (error) throw error;
       router.push("/");
     } catch (e) {
@@ -46,7 +50,9 @@ export default function LoginPage() {
             <h1 className="text-2xl font-semibold tracking-widest font-[family-name:var(--font-playfair)]">
               AURA
             </h1>
-            <p className="text-xs text-muted-foreground mt-1">로그인하세요</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              계정을 만드세요
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
             <form onSubmit={handleSubmit} className="space-y-3">
@@ -60,9 +66,18 @@ export default function LoginPage() {
               />
               <input
                 type="password"
-                placeholder="비밀번호"
+                placeholder="비밀번호 (6자 이상)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                required
+                minLength={6}
+              />
+              <input
+                type="password"
+                placeholder="비밀번호 확인"
+                value={passwordConfirm}
+                onChange={(e) => setPasswordConfirm(e.target.value)}
                 className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
                 required
                 minLength={6}
@@ -71,14 +86,14 @@ export default function LoginPage() {
               {error && <p className="text-xs text-destructive">{error}</p>}
 
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "처리 중..." : "로그인"}
+                {loading ? "처리 중..." : "회원가입"}
               </Button>
             </form>
 
             <p className="text-center text-xs text-muted-foreground">
-              계정이 없나요?{" "}
-              <Link href="/signup" className="underline text-foreground">
-                회원가입
+              이미 계정이 있나요?{" "}
+              <Link href="/login" className="underline text-foreground">
+                로그인
               </Link>
             </p>
           </CardContent>

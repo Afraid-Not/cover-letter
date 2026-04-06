@@ -9,7 +9,8 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname();
   const { user } = useAuth();
   const isLoginPage = pathname === "/login";
-  const isPublicPage = pathname === "/terms" || pathname === "/privacy";
+  const isPublicPage =
+    pathname === "/terms" || pathname === "/privacy" || pathname === "/signup";
 
   if (isPublicPage) {
     return <main className="flex-1 overflow-y-auto noise-bg">{children}</main>;
