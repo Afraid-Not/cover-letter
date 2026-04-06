@@ -460,10 +460,11 @@ async def update_project(project_id: int, req: UpdateProjectRequest, request: Re
 
 @app.delete("/api/projects/{project_id}")
 async def delete_project(project_id: int, request: Request):
-    """프로젝트 삭제."""
+    """프로젝트 삭제 — 자식 버전 먼저 삭제 후 루트 삭제."""
     token = _extract_token(request)
     sb = _get_sb(token)
     try:
+        sb.table("generations").delete().eq("parent_id", project_id).execute()
         sb.table("generations").delete().eq("id", project_id).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB delete failed: {e}")

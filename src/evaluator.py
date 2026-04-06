@@ -240,45 +240,47 @@ def _summarize_results(items: list[dict]) -> dict:
         result = item["result"]
         group = meta["group"]
         if group not in group_results:
-            group_results[group] = {"evaluations": [], "criteria": meta["criteria"]}
-        if result and not item.get("error"):
-            group_results[group]["evaluations"].append(result)
+            group_results[group] = {"evaluator_items": []}
+        group_results[group]["evaluator_items"].append(item)
 
     summary = {"groups": {}, "overall_pass_probability": 0, "all_feedback": []}
     total_prob = 0
     prob_count = 0
 
     for group_name, data in group_results.items():
-        evals = data["evaluations"]
-        if not evals:
+        # 평가관별로 각자의 criteria를 독립적으로 집계
+        criteria_avg = {}
+        evals_with_results = [it for it in data["evaluator_items"] if it["result"] and not it.get("error")]
+        for item in evals_with_results:
+            for criterion, score_data in item["result"].get("scores", {}).items():
+                if criterion not in criteria_avg:
+                    criteria_avg[criterion] = {"scores": [], "comments": []}
+                if isinstance(score_data, dict):
+                    criteria_avg[criterion]["scores"].append(score_data.get("score", 0))
+                    if score_data.get("comment"):
+                        criteria_avg[criterion]["comments"].append(score_data["comment"])
+
+        if not criteria_avg:
             continue
 
-        criteria_avg = {}
-        for criterion in data["criteria"]:
-            scores = [
-                e["scores"][criterion]["score"]
-                for e in evals
-                if criterion in e.get("scores", {})
-            ]
-            comments = [
-                e["scores"][criterion]["comment"]
-                for e in evals
-                if criterion in e.get("scores", {})
-            ]
-            criteria_avg[criterion] = {
+        criteria_final = {}
+        for criterion, agg in criteria_avg.items():
+            scores = agg["scores"]
+            criteria_final[criterion] = {
                 "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
-                "comments": comments,
+                "comments": agg["comments"],
             }
 
-        probs = [e.get("pass_probability", 0) for e in evals]
+        all_results = [it["result"] for it in evals_with_results]
+        probs = [e.get("pass_probability", 0) for e in all_results]
         avg_prob = sum(probs) / len(probs) if probs else 0
         total_prob += avg_prob * len(probs)
         prob_count += len(probs)
 
-        feedbacks = [e.get("feedback", "") for e in evals if e.get("feedback")]
+        feedbacks = [e.get("feedback", "") for e in all_results if e.get("feedback")]
 
         summary["groups"][group_name] = {
-            "criteria": criteria_avg,
+            "criteria": criteria_final,
             "avg_pass_probability": round(avg_prob, 1),
             "feedbacks": feedbacks,
         }
