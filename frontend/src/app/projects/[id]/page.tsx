@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { EvaluationCard } from "@/components/evaluation-card";
+import {
+  EvaluationCard,
+  EvaluationFeedback,
+} from "@/components/evaluation-card";
 import { EvaluationStream } from "@/components/evaluation-stream";
 import { api, getProjectStatus } from "@/lib/api";
 import type { Project, EvaluatorEvent } from "@/lib/api";
@@ -433,7 +436,7 @@ export default function ProjectPage({
         </nav>
 
         {/* Right: Content */}
-        <div className="flex-1 pl-6 max-w-2xl">
+        <div className="flex-1 pl-6">
           {/* Step 1: 채용공고 */}
           {activeStep === 1 && (
             <div className="animate-fade-in space-y-5">
@@ -1057,56 +1060,64 @@ export default function ProjectPage({
                 </div>
               )}
 
-              {/* Answer */}
+              {/* Answer + Evaluation 병렬 레이아웃 */}
               {answer && (
-                <Card>
-                  <CardContent className="pt-5">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-medium">생성된 자소서</p>
-                      {charLimit && (
-                        <Badge
-                          variant={
-                            charCount > parseInt(charLimit)
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
-                          {charCount}/{charLimit}자
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed bg-accent/20 rounded-lg p-4 border border-border/50">
-                      {answer}
-                    </div>
-                    <div className="flex gap-2 mt-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => navigator.clipboard.writeText(answer)}
-                      >
-                        복사
-                      </Button>
-                      {genStep === "done" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleRegenerate}
-                        >
-                          피드백 반영 재생성
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* 왼쪽: 자소서 + 주요 피드백 */}
+                  <div className="space-y-6">
+                    <Card>
+                      <CardContent className="pt-5">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-sm font-medium">생성된 자소서</p>
+                          {charLimit && (
+                            <Badge
+                              variant={
+                                charCount > parseInt(charLimit)
+                                  ? "destructive"
+                                  : "secondary"
+                              }
+                            >
+                              {charCount}/{charLimit}자
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed bg-accent/20 rounded-lg p-4 border border-border/50">
+                          {answer}
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              navigator.clipboard.writeText(answer)
+                            }
+                          >
+                            복사
+                          </Button>
+                          {genStep === "done" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleRegenerate}
+                            >
+                              피드백 반영 재생성
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                    {evalResult && <EvaluationFeedback result={evalResult} />}
+                  </div>
 
-              {/* Evaluation stream */}
-              {genStep === "evaluating" && evalEvents.length > 0 && (
-                <EvaluationStream events={evalEvents} />
+                  {/* 오른쪽: 통과 확률 + 평가 결과 */}
+                  <div className="space-y-6">
+                    {genStep === "evaluating" && evalEvents.length > 0 && (
+                      <EvaluationStream events={evalEvents} />
+                    )}
+                    {evalResult && <EvaluationCard result={evalResult} />}
+                  </div>
+                </div>
               )}
-
-              {/* Evaluation result */}
-              {evalResult && <EvaluationCard result={evalResult} />}
 
               {error && (
                 <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3">

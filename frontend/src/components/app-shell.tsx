@@ -21,7 +21,7 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
         {/* Top ambient glow */}
         <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/[0.04] rounded-full blur-[100px]" />
 
-        <div className="relative max-w-5xl mx-auto px-8 py-6">
+        <div className="relative max-w-7xl mx-auto px-8 py-6">
           {user && (
             <div className="flex justify-end mb-2">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/30 border border-border/50">

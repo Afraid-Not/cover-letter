@@ -31,7 +31,7 @@ npm run dev
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI — REST + SSE 스트리밍
+├── api/main.py              # FastAPI — REST + SSE 스트리밍 + 프로젝트 CRUD
 ├── src/
 │   ├── embedder.py           # data.txt → Parent-Child 청킹 → 임베딩 → Supabase
 │   ├── parser.py             # 이력서 파싱 (텍스트/PDF) → 구조화 → Supabase 저장
@@ -42,11 +42,12 @@ cover-letter/
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: / (대시보드), /login, /projects/[id], /resumes
-│       ├── components/       # sidebar(hover 접이식), auth, evaluation-card/stream 등
+│       ├── app/              # 페이지: /, /login, /history, /projects/[id], /resumes
+│       ├── components/       # app-shell, sidebar, auth-guard/provider, evaluation-card/stream
 │       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD), supabase.ts
 ├── email-templates/          # Supabase Auth 이메일 템플릿 (가입 인증)
 ├── data/data.txt             # 합격 자소서 39건 원본
+├── pyproject.toml            # Python 프로젝트 설정 + 의존성
 ├── .env                      # SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY
 ├── frontend/.env.local       # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
 └── PLAN.md                   # 상세 기획 문서
@@ -71,6 +72,8 @@ cover-letter/
 - **테마**: Soft/Pastel 다크 — 라벤더/바이올렛 톤 (primary hue 290)
 - **사이드바**: hover 시 펼침 (64px → 220px), 고정 position
 - **프로젝트 카드**: 고정 높이, 좌측 상태 액센트 바, 부드러운 그림자
+- **결과 레이아웃**: 2-Column (자소서+피드백 좌 / 통과확률+평가카드 우)
+- **콘텐츠 영역**: max-w-7xl, 넓은 레이아웃
 - **상태 컬러**: draft(gray), ready(sky), generated(amber), evaluated(emerald)
 - **서비스명**: AURA
 

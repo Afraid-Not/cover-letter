@@ -6,8 +6,9 @@
 
 - **프로젝트 대시보드** — 자소서를 프로젝트 단위로 관리 (draft → ready → generated → evaluated)
 - **4단계 위자드** — 채용공고 입력 → 이력서 선택 → 작성 설정 → 생성 & 평가
-- **자소서 자동 생성** — 합격 자소서 136건 RAG 기반, 사람이 쓴 것처럼 자연스러운 문체
+- **자소서 자동 생성** — 합격 자소서 39건 RAG 기반, 사람이 쓴 것처럼 자연스러운 문체
 - **9명 AI 평가관** — HR 인사담당자 3명 + 현업 팀장 3명 + 채용 리더 3명이 실시간 SSE 스트리밍으로 평가
+- **2-Column 결과 레이아웃** — 자소서+피드백 / 통과확률+평가카드 좌우 배치
 - **채용공고 분석** — 텍스트 복붙 또는 스크린샷 업로드 (GPT-4o Vision), 분석 결과 인라인 수정 가능
 - **이력서 관리** — PDF/텍스트 업로드, 파싱 후 Supabase에 저장하여 재사용
 - **일반 자소서 / 질문 답변** 모드 지원
@@ -34,7 +35,7 @@
 [이력서 파싱]   →  구조화된 경력/프로젝트/스킬
       │
       ▼
-[RAG 검색]  →  합격 자소서 136건에서 유사 사례 검색 (Parent-Child Chunking)
+[RAG 검색]  →  합격 자소서 39건에서 유사 사례 검색 (Parent-Child Chunking)
       │
       ▼
 [자소서 생성]  →  합격 자소서 스타일 + 채용공고 맞춤 + 내 경험 기반
@@ -126,13 +127,14 @@ cover-letter/
 │   ├── generator.py          # RAG + 자소서 생성
 │   ├── evaluator.py          # 9명 LLM-as-a-Judge 평가
 │   └── cli.py                # Typer CLI
-├── frontend/                 # Next.js 대시보드
+├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: / (대시보드), /login, /projects/[id], /resumes
-│       ├── components/       # sidebar(hover 접이식), auth, evaluation 등
+│       ├── app/              # 페이지: /, /login, /history, /projects/[id], /resumes
+│       ├── components/       # app-shell, sidebar, auth-guard/provider, evaluation-card/stream
 │       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD), supabase.ts
 ├── email-templates/          # Supabase Auth 이메일 템플릿
 ├── data/data.txt             # 합격 자소서 원본 (39건)
+├── pyproject.toml            # Python 프로젝트 설정 + 의존성
 ├── PLAN.md                   # 상세 기획 문서
 └── CLAUDE.md                 # 개발 컨텍스트
 ```

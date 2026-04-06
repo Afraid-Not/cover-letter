@@ -55,7 +55,7 @@ export const EvaluationCard = ({ result }: { result: EvaluationResult }) => {
       </Card>
 
       {/* 그룹별 점수 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4">
         {Object.entries(result.groups).map(([group, data]) => {
           const meta = GROUP_LABELS[group] || { emoji: "?", color: "bg-muted" };
           return (
@@ -95,28 +95,31 @@ export const EvaluationCard = ({ result }: { result: EvaluationResult }) => {
           );
         })}
       </div>
-
-      {/* 피드백 */}
-      {result.all_feedback.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">주요 피드백</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-1.5">
-              {[...new Set(result.all_feedback)].slice(0, 5).map((fb, i) => (
-                <li
-                  key={i}
-                  className="text-sm text-muted-foreground flex gap-2"
-                >
-                  <span className="text-foreground/50 shrink-0">-</span>
-                  {fb}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
     </div>
+  );
+};
+
+export const EvaluationFeedback = ({
+  result,
+}: {
+  result: EvaluationResult;
+}) => {
+  if (result.all_feedback.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">주요 피드백</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-1.5">
+          {[...new Set(result.all_feedback)].slice(0, 5).map((fb, i) => (
+            <li key={i} className="text-sm text-muted-foreground flex gap-2">
+              <span className="text-foreground/50 shrink-0">-</span>
+              {fb}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 };
