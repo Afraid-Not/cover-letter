@@ -419,7 +419,7 @@ async def list_projects(request: Request):
     sb = _get_sb(token)
     try:
         result = sb.table("generations").select(
-            "id, question, mode, char_limit, created_at, answer, evaluation, job_analysis, job_posting"
+            "id, question, mode, char_limit, created_at, job_analysis, evaluation"
         ).is_("project_id", "null").order("created_at", desc=True).limit(50).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB query failed: {e}")
@@ -464,7 +464,7 @@ async def delete_project(project_id: int, request: Request):
     token = _extract_token(request)
     sb = _get_sb(token)
     try:
-        sb.table("generations").delete().eq("parent_id", project_id).execute()
+        sb.table("generations").delete().eq("project_id", project_id).execute()
         sb.table("generations").delete().eq("id", project_id).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB delete failed: {e}")
