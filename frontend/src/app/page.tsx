@@ -220,6 +220,81 @@ const TagEditor = ({
   );
 };
 
+// ── OpenAI 정책 오류 모달 ──
+
+const PolicyErrorModal = ({ onClose }: { onClose: () => void }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+      onClick={onClose}
+    />
+    <div className="relative bg-card border border-border rounded-xl shadow-lg w-full max-w-md p-6 space-y-4 animate-fade-in">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-amber-400/10 flex items-center justify-center shrink-0">
+          <svg
+            className="w-5 h-5 text-amber-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+            />
+          </svg>
+        </div>
+        <div>
+          <h3 className="text-base font-semibold">보안 정책으로 분석 실패</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            AI가 채용공고 분석을 거부했습니다. 아래 방법 중 하나를 시도해보세요.
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-accent/10 p-4 space-y-2.5 text-sm">
+        <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">
+          해결 방법
+        </p>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <span className="text-primary font-bold shrink-0">1.</span>
+            <p>
+              채용공고를 <span className="font-medium">직접 타이핑</span>하거나
+              일부만 붙여넣어 다시 시도해주세요.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-primary font-bold shrink-0">2.</span>
+            <p>
+              회사명·직무·필수조건·우대조건이 보이는{" "}
+              <span className="font-medium">부분만 캡쳐</span>해서
+              업로드해주세요.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-primary font-bold shrink-0">3.</span>
+            <p>
+              특수문자나 민감한 내용이 포함된 경우 해당 부분을{" "}
+              <span className="font-medium">제거 후 재시도</span>해주세요.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+        >
+          다시 시도
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 // ── 채용공고 분석 확인 모달 ──
 
 const AnalysisConfirmModal = ({
@@ -412,6 +487,7 @@ export default function DashboardPage() {
 
   // 분석 확인 모달
   const [confirmProject, setConfirmProject] = useState<Project | null>(null);
+  const [showPolicyError, setShowPolicyError] = useState(false);
 
   useEffect(() => {
     api
@@ -446,18 +522,28 @@ export default function DashboardPage() {
     setProjects((prev) => prev.filter((p) => p.id !== id));
   };
 
+  const isRefusalResponse = (project: Project) => {
+    const text = JSON.stringify(project.job_analysis || "").toLowerCase();
+    return /i'm sorry|i apologize|sorry,|죄송합니다|정책상/.test(text);
+  };
+
   const handleCreate = async (text?: string) => {
     const posting = text || jobPosting;
     if (!posting.trim()) return;
     setCreating(true);
     try {
       const project = await api.createProject(posting);
+
+      if (isRefusalResponse(project)) {
+        await api.deleteProject(project.id);
+        setShowPolicyError(true);
+        return;
+      }
+
       setProjects((prev) => [project, ...(Array.isArray(prev) ? prev : [])]);
       setShowCreate(false);
       setJobPosting("");
       setJobFile(null);
-
-      // 분석 결과 확인 모달 띄우기
       setConfirmProject(project);
     } catch {
       // keep form open on error
@@ -485,6 +571,19 @@ export default function DashboardPage() {
       {showCreate && (
         <Card className="animate-fade-in border-primary/30">
           <CardContent className="pt-5 space-y-4">
+            {/* 캡쳐 안내 박스 */}
+            <div className="rounded-lg border border-primary/20 bg-primary/[0.04] px-4 py-3 space-y-1.5">
+              <p className="text-xs font-medium text-primary/80">
+                📸 이런 부분을 캡쳐하거나 텍스트로 붙여넣으세요
+              </p>
+              <ul className="text-xs text-muted-foreground space-y-0.5 pl-1">
+                <li>· 회사명 및 채용 직무명</li>
+                <li>· 경력 유무 (신입 / 경력 / 무관)</li>
+                <li>· 필수 조건 (자격요건)</li>
+                <li>· 우대 조건</li>
+                <li>· 주요 업무 내용</li>
+              </ul>
+            </div>
             <div>
               <p className="text-sm font-medium mb-2">채용공고 입력</p>
               <Textarea
@@ -695,6 +794,13 @@ export default function DashboardPage() {
           })}
         </div>
       )}
+
+      {/* 정책 오류 모달 */}
+      {showPolicyError &&
+        createPortal(
+          <PolicyErrorModal onClose={() => setShowPolicyError(false)} />,
+          document.body,
+        )}
 
       {/* 분석 확인 모달 */}
       {confirmProject &&
