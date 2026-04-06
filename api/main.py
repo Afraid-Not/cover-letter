@@ -207,27 +207,33 @@ async def evaluate_stream_endpoint(req: EvaluateRequest):
 
 
 @app.get("/api/resumes")
-async def list_resumes():
+async def list_resumes(request: Request):
     from src.parser import list_resumes
+    token = _extract_token(request)
+    user_id = _get_user_id(token) if token else None
     try:
-        return list_resumes()
+        return list_resumes(user_id=user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"이력서 목록 조회 실패: {e}")
 
 
 @app.post("/api/resumes")
-async def add_resume(req: ResumeRequest):
+async def add_resume(req: ResumeRequest, request: Request):
     from src.parser import process_resume
+    token = _extract_token(request)
+    user_id = _get_user_id(token) if token else None
     try:
-        return process_resume(req.source, req.name)
+        return process_resume(req.source, req.name, user_id=user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"이력서 등록 실패: {e}")
 
 
 @app.post("/api/resumes/upload")
-async def upload_resume(file: UploadFile = File(...), name: str = Form("")):
+async def upload_resume(request: Request, file: UploadFile = File(...), name: str = Form("")):
     """PDF/txt/md 파일 업로드로 이력서 등록"""
     from src.parser import process_resume
+    token = _extract_token(request)
+    user_id = _get_user_id(token) if token else None
 
     suffix = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
     content = await file.read()
@@ -237,12 +243,12 @@ async def upload_resume(file: UploadFile = File(...), name: str = Form("")):
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
-            result = process_resume(tmp_path, name or file.filename)
+            result = process_resume(tmp_path, name or file.filename, user_id=user_id)
             import os
             os.unlink(tmp_path)
         else:
             text = content.decode("utf-8")
-            result = process_resume(text, name or file.filename)
+            result = process_resume(text, name or file.filename, user_id=user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"이력서 업로드 실패: {e}")
 

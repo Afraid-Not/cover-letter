@@ -85,13 +85,15 @@ def get_embedding(text: str) -> list[float]:
     return response.data[0].embedding
 
 
-def save_resume(name: str, raw_text: str, structured: dict) -> dict:
+def save_resume(name: str, raw_text: str, structured: dict, user_id: str | None = None) -> dict:
     """이력서를 Supabase에 저장한다. 같은 이름이면 업데이트."""
     embed_text = _structured_to_text(structured)
     embedding = get_embedding(embed_text)
 
-    # 같은 이름의 이력서가 있으면 업데이트
-    existing = supabase.table("resumes").select("id").eq("name", name).execute()
+    query = supabase.table("resumes").select("id").eq("name", name)
+    if user_id:
+        query = query.eq("user_id", user_id)
+    existing = query.execute()
 
     if existing.data:
         result = supabase.table("resumes").update({
@@ -99,21 +101,22 @@ def save_resume(name: str, raw_text: str, structured: dict) -> dict:
             "structured_data": structured,
             "embedding": embedding,
             "updated_at": "now()",
-        }).eq("name", name).execute()
+        }).eq("id", existing.data[0]["id"]).execute()
     else:
-        result = supabase.table("resumes").insert({
-            "name": name,
-            "raw_text": raw_text,
-            "structured_data": structured,
-            "embedding": embedding,
-        }).execute()
+        row = {"name": name, "raw_text": raw_text, "structured_data": structured, "embedding": embedding}
+        if user_id:
+            row["user_id"] = user_id
+        result = supabase.table("resumes").insert(row).execute()
 
     return result.data[0]
 
 
-def list_resumes() -> list[dict]:
+def list_resumes(user_id: str | None = None) -> list[dict]:
     """저장된 이력서 목록을 조회한다."""
-    result = supabase.table("resumes").select("id, name, created_at, updated_at").order("updated_at", desc=True).execute()
+    query = supabase.table("resumes").select("id, name, created_at, updated_at")
+    if user_id:
+        query = query.eq("user_id", user_id)
+    result = query.order("updated_at", desc=True).execute()
     return result.data
 
 
@@ -161,13 +164,13 @@ def _structured_to_text(structured: dict) -> str:
     return "\n".join(parts)
 
 
-def process_resume(source: str, name: str | None = None) -> dict:
+def process_resume(source: str, name: str | None = None, user_id: str | None = None) -> dict:
     """이력서 입력 → 파싱 → 저장 전체 파이프라인."""
     raw_text = read_input(source)
     structured = parse_resume(raw_text)
 
     resume_name = name or structured.get("name", "unnamed")
-    saved = save_resume(resume_name, raw_text, structured)
+    saved = save_resume(resume_name, raw_text, structured, user_id=user_id)
 
     return {
         "id": saved["id"],

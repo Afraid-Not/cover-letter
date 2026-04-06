@@ -44,26 +44,37 @@ export const api = {
       body: JSON.stringify(data),
     }).then((r) => r.json()),
 
-  listResumes: () => fetch(`${API_BASE}/api/resumes`).then((r) => r.json()),
+  listResumes: async () => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/resumes`, { headers }).then((r) => r.json());
+  },
 
-  addResume: (source: string, name?: string) =>
-    fetch(`${API_BASE}/api/resumes`, {
+  addResume: async (source: string, name?: string) => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/resumes`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ source, name }),
-    }).then((r) => r.json()),
+    }).then((r) => r.json());
+  },
 
-  deleteResume: (id: number) =>
-    fetch(`${API_BASE}/api/resumes/${id}`, { method: "DELETE" }).then((r) =>
-      r.json(),
-    ),
+  deleteResume: async (id: number) => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/resumes/${id}`, {
+      method: "DELETE",
+      headers,
+    }).then((r) => r.json());
+  },
 
-  uploadResume: (file: File, name?: string) => {
+  uploadResume: async (file: File, name?: string) => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
     const formData = new FormData();
     formData.append("file", file);
     formData.append("name", name || "");
     return fetch(`${API_BASE}/api/resumes/upload`, {
       method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
     }).then((r) => r.json());
   },
