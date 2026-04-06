@@ -1,4 +1,4 @@
-# Cover Letter Generator
+# AURA — Cover Letter Generator
 
 ## 프로젝트 개요
 
@@ -43,8 +43,9 @@ cover-letter/
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
 │       ├── app/              # 페이지: / (대시보드), /login, /projects/[id], /resumes
-│       ├── components/       # sidebar, auth, evaluation-card/stream 등
+│       ├── components/       # sidebar(hover 접이식), auth, evaluation-card/stream 등
 │       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD), supabase.ts
+├── email-templates/          # Supabase Auth 이메일 템플릿 (가입 인증)
 ├── data/data.txt             # 합격 자소서 39건 원본
 ├── .env                      # SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY
 ├── frontend/.env.local       # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -65,23 +66,25 @@ cover-letter/
 - 평가 SSE 스트리밍: 각 평가관 결과를 실시간으로 프론트에 전달
 - Supabase Auth + RLS: 사용자별 데이터 격리
 
+## UI 디자인
+
+- **테마**: Soft/Pastel 다크 — 라벤더/바이올렛 톤 (primary hue 290)
+- **사이드바**: hover 시 펼침 (64px → 220px), 고정 position
+- **프로젝트 카드**: 고정 높이, 좌측 상태 액센트 바, 부드러운 그림자
+- **상태 컬러**: draft(gray), ready(sky), generated(amber), evaluated(emerald)
+- **서비스명**: AURA
+
 ## 프로젝트 플로우
 
 - 메인 대시보드(`/`) → 프로젝트 카드 목록 (status: draft/ready/generated/evaluated)
-- 프로젝트 생성 → 채용공고 입력 → 자동 분석 → `/projects/[id]`로 이동
+- 프로젝트 생성 → 채용공고 입력 → 자동 분석 → 분석 결과 확인/수정 모달 → `/projects/[id]`로 이동
 - 프로젝트 상세(`/projects/[id]`) → 4단계 위자드: 채용공고 → 이력서 → 작성설정 → 결과
+- Step 1에서 분석 결과(회사/직무/역량/키워드) 인라인 수정 가능
+- 회사명/직무 미입력 시 다음 단계 진행 불가
 - 프로젝트 데이터는 `generations` 테이블 재사용 (별도 테이블 없음)
-
-## 해결된 버그
-
-### PATCH /api/projects/{id} — 404 에러 (해결됨)
-
-- **증상**: 자소서 생성 후 결과가 DB에 저장되지 않아 다시 보기 불가
-- **원인**: `generations` 테이블에 UPDATE/DELETE RLS 정책 누락
-- **수정**: RLS에 UPDATE/DELETE 정책 추가 + 프론트엔드 `updateProject` 에러 체크 추가
 
 ## 코드 컨벤션
 
-- Python: arrow function 없음 (Python이므로), 타입 힌트 사용
+- Python: 타입 힌트 사용
 - TypeScript: arrow function 사용, shadcn/ui 컴포넌트 기반
 - 커밋 메시지: 한국어 가능, Co-Authored-By 포함

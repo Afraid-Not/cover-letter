@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,17 +10,30 @@ import { Badge } from "@/components/ui/badge";
 import { api, getProjectStatus } from "@/lib/api";
 import type { Project, ProjectStatus } from "@/lib/api";
 
-const STATUS_CONFIG: Record<ProjectStatus, { label: string; color: string }> = {
+const STATUS_CONFIG: Record<
+  ProjectStatus,
+  { label: string; color: string; accent: string }
+> = {
   draft: {
     label: "채용공고만 입력됨",
-    color: "bg-muted text-muted-foreground",
+    color: "bg-muted/50 text-muted-foreground/80",
+    accent: "bg-muted-foreground/20",
   },
-  ready: { label: "이력서 설정 완료", color: "bg-blue-500/15 text-blue-400" },
+  ready: {
+    label: "이력서 설정 완료",
+    color: "bg-sky-400/8 text-sky-300/70",
+    accent: "bg-sky-400/40",
+  },
   generated: {
     label: "자소서 생성 완료",
-    color: "bg-yellow-500/15 text-yellow-400",
+    color: "bg-amber-400/8 text-amber-300/70",
+    accent: "bg-amber-300/40",
   },
-  evaluated: { label: "평가 완료", color: "bg-green-500/15 text-green-400" },
+  evaluated: {
+    label: "평가 완료",
+    color: "bg-emerald-400/8 text-emerald-300/70",
+    accent: "bg-emerald-400/40",
+  },
 };
 
 const PlusIcon = () => (
@@ -86,37 +100,228 @@ const BriefcaseIcon = () => (
   </svg>
 );
 
-// ── 회사명/직무 편집 모달 ──
+// ── 아이콘 ──
 
-const EditInfoModal = ({
+const TrashIcon = () => (
+  <svg
+    className="w-3.5 h-3.5"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth={2}
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+    />
+  </svg>
+);
+
+const XIcon = () => (
+  <svg
+    className="w-3.5 h-3.5"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth={2}
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M6 18 18 6M6 6l12 12"
+    />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg
+    className="w-4 h-4"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth={2}
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="m4.5 12.75 6 6 9-13.5"
+    />
+  </svg>
+);
+
+// ── 태그 입력 컴포넌트 ──
+
+const TagEditor = ({
+  label,
+  tags,
+  onChange,
+}: {
+  label: string;
+  tags: string[];
+  onChange: (tags: string[]) => void;
+}) => {
+  const [input, setInput] = useState("");
+
+  const handleAdd = () => {
+    const v = input.trim();
+    if (v && !tags.includes(v)) {
+      onChange([...tags, v]);
+      setInput("");
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+        {label}
+      </label>
+      <div className="flex flex-wrap gap-1.5 mb-1.5">
+        {tags.map((tag, i) => (
+          <span
+            key={i}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent text-xs"
+          >
+            {tag}
+            <button
+              onClick={() => onChange(tags.filter((_, j) => j !== i))}
+              className="text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <XIcon />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleAdd();
+            }
+          }}
+          placeholder="입력 후 Enter"
+          className="flex-1 h-7 rounded-md border border-input bg-transparent px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={handleAdd}
+          disabled={!input.trim()}
+        >
+          추가
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+// ── 채용공고 분석 확인 모달 ──
+
+const AnalysisConfirmModal = ({
   project,
-  isUnknown,
-  onSave,
+  onConfirm,
   onClose,
 }: {
   project: Project;
-  isUnknown: boolean;
-  onSave: (id: number, company: string, position: string) => Promise<void>;
+  onConfirm: (analysis: Project["job_analysis"]) => Promise<void>;
   onClose: () => void;
 }) => {
-  const [company, setCompany] = useState(
-    project.job_analysis?.company === "미확인"
-      ? ""
-      : project.job_analysis?.company || "",
-  );
-  const [position, setPosition] = useState(
-    project.job_analysis?.position === "미확인"
-      ? ""
-      : project.job_analysis?.position || "",
-  );
+  const a = project.job_analysis;
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [company, setCompany] = useState(a?.company || "");
+  const [position, setPosition] = useState(a?.position || "");
+  const [experienceLevel, setExperienceLevel] = useState(
+    a?.experience_level || "",
+  );
+  const [requiredSkills, setRequiredSkills] = useState<string[]>(
+    a?.required_skills || [],
+  );
+  const [preferredSkills, setPreferredSkills] = useState<string[]>(
+    a?.preferred_skills || [],
+  );
+  const [responsibilities, setResponsibilities] = useState<string[]>(
+    a?.responsibilities || [],
+  );
+  const [keywords, setKeywords] = useState<string[]>(a?.keywords || []);
+  const [cultureKeywords, setCultureKeywords] = useState<string[]>(
+    a?.culture_keywords || [],
+  );
 
-  const handleSave = async () => {
-    if (!company.trim() || !position.trim()) return;
+  const handleConfirm = async () => {
     setSaving(true);
-    await onSave(project.id, company.trim(), position.trim());
+    await onConfirm({
+      company,
+      position,
+      experience_level: experienceLevel,
+      required_skills: requiredSkills,
+      preferred_skills: preferredSkills,
+      responsibilities,
+      keywords,
+      culture_keywords: cultureKeywords,
+    });
     setSaving(false);
   };
+
+  const fieldRow = (
+    label: string,
+    value: string,
+    setter: (v: string) => void,
+    placeholder: string,
+  ) => (
+    <div>
+      <label className="text-xs font-medium text-muted-foreground block mb-1">
+        {label}
+      </label>
+      {editing ? (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setter(e.target.value)}
+          placeholder={placeholder}
+          className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      ) : (
+        <p className="text-sm font-medium">
+          {value || <span className="text-muted-foreground">미확인</span>}
+        </p>
+      )}
+    </div>
+  );
+
+  const tagRow = (
+    label: string,
+    tags: string[],
+    setter: (t: string[]) => void,
+  ) => (
+    <div>
+      {editing ? (
+        <TagEditor label={label} tags={tags} onChange={setter} />
+      ) : (
+        <>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">
+            {label}
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {tags.length > 0 ? (
+              tags.map((t, i) => (
+                <Badge key={i} variant="secondary" className="text-[11px]">
+                  {t}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-xs text-muted-foreground">없음</span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -124,63 +329,68 @@ const EditInfoModal = ({
         className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative bg-card border border-border rounded-xl shadow-lg w-full max-w-md p-6 space-y-4 animate-fade-in">
-        <div>
-          <h3 className="text-base font-semibold">
-            {isUnknown ? "회사/직무 정보를 입력해주세요" : "회사/직무 수정"}
-          </h3>
-          {isUnknown && (
-            <p className="text-xs text-muted-foreground mt-1">
-              채용공고에서 자동 감지하지 못했습니다. 직접 입력해주세요.
+      <div className="relative bg-card border border-border rounded-xl shadow-lg w-full max-w-lg max-h-[85vh] overflow-y-auto p-6 space-y-4 animate-fade-in">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-base font-semibold">채용공고 분석 결과</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {editing
+                ? "각 항목을 직접 수정할 수 있습니다"
+                : "분석 결과를 확인해주세요"}
             </p>
+          </div>
+          {!editing && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={() => setEditing(true)}
+            >
+              <PencilIcon /> 수정
+            </Button>
           )}
         </div>
 
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1.5">
-              회사명
-            </label>
-            <input
-              type="text"
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-              placeholder="예: 삼성전자"
-              className="w-full h-10 rounded-lg border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1.5">
-              직무
-            </label>
-            <input
-              type="text"
-              value={position}
-              onChange={(e) => setPosition(e.target.value)}
-              placeholder="예: 백엔드 개발자"
-              className="w-full h-10 rounded-lg border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
+        <div className="space-y-3 rounded-lg border border-border bg-accent/10 p-4">
+          {fieldRow("회사명", company, setCompany, "예: 삼성전자")}
+          {fieldRow("포지션", position, setPosition, "예: 백엔드 개발자")}
+          {fieldRow(
+            "경력 수준",
+            experienceLevel,
+            setExperienceLevel,
+            "예: 신입/경력/무관",
+          )}
+          <div className="border-t border-border/50 pt-3 space-y-3">
+            {tagRow("필수 역량", requiredSkills, setRequiredSkills)}
+            {tagRow("우대 역량", preferredSkills, setPreferredSkills)}
+            {tagRow("주요 업무", responsibilities, setResponsibilities)}
+            {tagRow("핵심 키워드", keywords, setKeywords)}
+            {tagRow("조직문화 키워드", cultureKeywords, setCultureKeywords)}
           </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-1">
-          {!isUnknown && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onClose}
-              disabled={saving}
-            >
-              취소
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onClose}
+            disabled={saving}
+          >
+            취소
+          </Button>
           <Button
             size="sm"
-            onClick={handleSave}
-            disabled={!company.trim() || !position.trim() || saving}
+            className="gap-1.5"
+            onClick={handleConfirm}
+            disabled={saving}
           >
-            {saving ? "저장 중..." : "저장"}
+            {saving ? (
+              "저장 중..."
+            ) : (
+              <>
+                <CheckIcon /> 확인
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -200,9 +410,8 @@ export default function DashboardPage() {
   const [jobFile, setJobFile] = useState<File | null>(null);
   const [jobFileLoading, setJobFileLoading] = useState(false);
 
-  // 편집 모달
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [editIsUnknown, setEditIsUnknown] = useState(false);
+  // 분석 확인 모달
+  const [confirmProject, setConfirmProject] = useState<Project | null>(null);
 
   useEffect(() => {
     api
@@ -220,30 +429,21 @@ export default function DashboardPage() {
     return !c || c === "미확인" || !pos || pos === "미확인";
   };
 
-  const openEditModal = useCallback((project: Project, isUnknown: boolean) => {
-    setEditingProject(project);
-    setEditIsUnknown(isUnknown);
-  }, []);
-
-  const handleSaveInfo = async (
-    id: number,
-    company: string,
-    position: string,
-  ) => {
-    const target = projects.find((p) => p.id === id);
-    if (!target) return;
-
-    const updatedAnalysis = { ...target.job_analysis, company, position };
-    await api.updateProject(id, {
-      job_analysis: updatedAnalysis,
+  const handleConfirmAnalysis = async (analysis: Project["job_analysis"]) => {
+    if (!confirmProject) return;
+    await api.updateProject(confirmProject.id, {
+      job_analysis: analysis,
     } as Partial<Project>);
+    const updated = { ...confirmProject, job_analysis: analysis };
+    setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    setConfirmProject(null);
+    router.push(`/projects/${updated.id}`);
+  };
 
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === id ? { ...p, job_analysis: updatedAnalysis } : p,
-      ),
-    );
-    setEditingProject(null);
+  const handleDelete = async (e: React.MouseEvent, id: number) => {
+    e.stopPropagation();
+    await api.deleteProject(id);
+    setProjects((prev) => prev.filter((p) => p.id !== id));
   };
 
   const handleCreate = async (text?: string) => {
@@ -257,10 +457,8 @@ export default function DashboardPage() {
       setJobPosting("");
       setJobFile(null);
 
-      // 미확인이면 바로 편집 모달 띄우기
-      if (hasUnknownInfo(project)) {
-        openEditModal(project, true);
-      }
+      // 분석 결과 확인 모달 띄우기
+      setConfirmProject(project);
     } catch {
       // keep form open on error
     } finally {
@@ -410,7 +608,7 @@ export default function DashboardPage() {
 
       {/* Project cards */}
       {!loading && projects.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-4">
           {projects.map((project, idx) => {
             const status = getProjectStatus(project);
             const config = STATUS_CONFIG[status];
@@ -424,83 +622,73 @@ export default function DashboardPage() {
                 day: "numeric",
               },
             );
-            const unknown = hasUnknownInfo(project);
 
             return (
-              <div key={project.id ?? idx} className="text-left group relative">
-                {/* 편집 버튼 */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openEditModal(project, false);
-                  }}
-                  className="absolute top-3 right-3 z-10 p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
-                  title="회사/직무 수정"
-                >
-                  <PencilIcon />
-                </button>
-
+              <div key={project.id ?? idx} className="group">
                 <button
                   onClick={() => router.push(`/projects/${project.id}`)}
                   className="w-full text-left"
                 >
-                  <Card
-                    className={`h-full transition-all duration-200 hover:border-primary/40 hover:bg-accent/20 cursor-pointer ${unknown ? "border-yellow-500/30" : ""}`}
-                  >
-                    <CardContent className="pt-5 pb-4">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="min-w-0 flex-1 pr-6">
-                          <p
-                            className={`text-sm font-semibold truncate ${unknown ? "text-yellow-400" : ""}`}
-                          >
+                  <div className="relative h-[160px] rounded-xl bg-card border border-border/50 p-4 overflow-hidden hover:border-primary/20 hover:bg-card/90 hover:shadow-lg hover:shadow-primary/[0.06] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer">
+                    <div
+                      className={`absolute left-0 top-4 bottom-4 w-[3px] rounded-full ${config.accent}`}
+                    />
+
+                    <div className="pl-3 h-full flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-start justify-between">
+                          <p className="text-base font-medium truncate pr-4">
                             {company}
                           </p>
-                          <p
-                            className={`text-xs truncate mt-0.5 ${unknown ? "text-yellow-400/70" : "text-muted-foreground"}`}
-                          >
-                            {position}
-                          </p>
+                          <span className="text-xs text-muted-foreground/40 shrink-0">
+                            {date}
+                          </span>
                         </div>
-                        <span className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground">
-                          <ArrowRightIcon />
-                        </span>
+                        <p className="text-sm text-muted-foreground/60 truncate mt-1">
+                          {position}
+                        </p>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {unknown && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
                           <Badge
                             variant="secondary"
-                            className="text-[10px] bg-yellow-500/15 text-yellow-400"
+                            className={`text-xs border-0 ${config.color}`}
                           >
-                            정보 미확인
+                            {config.label}
                           </Badge>
-                        )}
-                        <Badge
-                          variant="secondary"
-                          className={`text-[10px] ${config.color}`}
+                          {passProb != null && (
+                            <Badge
+                              variant="secondary"
+                              className={`text-xs font-mono border-0 ${
+                                passProb >= 70
+                                  ? "bg-emerald-400/8 text-emerald-300/70"
+                                  : passProb >= 50
+                                    ? "bg-amber-400/8 text-amber-300/70"
+                                    : "bg-rose-400/8 text-rose-300/70"
+                              }`}
+                            >
+                              {passProb}%
+                            </Badge>
+                          )}
+                        </div>
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (
+                              confirm("이 프로젝트를 정말 삭제하시겠습니까?")
+                            ) {
+                              handleDelete(e, project.id);
+                            }
+                          }}
+                          className="text-xs font-semibold px-2 py-0.5 rounded border border-destructive/40 text-destructive/70 hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer"
                         >
-                          {config.label}
-                        </Badge>
-                        {passProb != null && (
-                          <Badge
-                            variant="secondary"
-                            className={`text-[10px] font-mono ${
-                              passProb >= 70
-                                ? "bg-green-500/15 text-green-400"
-                                : passProb >= 50
-                                  ? "bg-yellow-500/15 text-yellow-400"
-                                  : "bg-red-500/15 text-red-400"
-                            }`}
-                          >
-                            {passProb}%
-                          </Badge>
-                        )}
-                        <span className="text-[10px] text-muted-foreground/50 ml-auto">
-                          {date}
+                          삭제
                         </span>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
                 </button>
               </div>
             );
@@ -508,15 +696,19 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 편집 모달 */}
-      {editingProject && (
-        <EditInfoModal
-          project={editingProject}
-          isUnknown={editIsUnknown}
-          onSave={handleSaveInfo}
-          onClose={() => setEditingProject(null)}
-        />
-      )}
+      {/* 분석 확인 모달 */}
+      {confirmProject &&
+        createPortal(
+          <AnalysisConfirmModal
+            project={confirmProject}
+            onConfirm={handleConfirmAnalysis}
+            onClose={() => {
+              setConfirmProject(null);
+              router.push(`/projects/${confirmProject.id}`);
+            }}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

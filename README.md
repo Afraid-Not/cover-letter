@@ -1,4 +1,4 @@
-# Cover Letter Generator
+# AURA — Cover Letter Generator
 
 합격 자소서 기반 RAG + 9명 AI 평가관 자소서 생성 풀스택 앱
 
@@ -8,7 +8,7 @@
 - **4단계 위자드** — 채용공고 입력 → 이력서 선택 → 작성 설정 → 생성 & 평가
 - **자소서 자동 생성** — 합격 자소서 136건 RAG 기반, 사람이 쓴 것처럼 자연스러운 문체
 - **9명 AI 평가관** — HR 인사담당자 3명 + 현업 팀장 3명 + 채용 리더 3명이 실시간 SSE 스트리밍으로 평가
-- **채용공고 분석** — 텍스트 복붙 또는 스크린샷 업로드 (GPT-4o Vision)
+- **채용공고 분석** — 텍스트 복붙 또는 스크린샷 업로드 (GPT-4o Vision), 분석 결과 인라인 수정 가능
 - **이력서 관리** — PDF/텍스트 업로드, 파싱 후 Supabase에 저장하여 재사용
 - **일반 자소서 / 질문 답변** 모드 지원
 - **피드백 반영 재생성** — 평가 결과 기반 자동 개선
@@ -127,11 +127,11 @@ cover-letter/
 │   ├── evaluator.py          # 9명 LLM-as-a-Judge 평가
 │   └── cli.py                # Typer CLI
 ├── frontend/                 # Next.js 대시보드
-│   └── src/app/
-│       ├── page.tsx           # 프로젝트 대시보드 (메인)
-│       ├── projects/[id]/     # 프로젝트 상세 (4단계 위자드)
-│       ├── login/             # 로그인
-│       └── resumes/           # 이력서 관리
+│   └── src/
+│       ├── app/              # 페이지: / (대시보드), /login, /projects/[id], /resumes
+│       ├── components/       # sidebar(hover 접이식), auth, evaluation 등
+│       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD), supabase.ts
+├── email-templates/          # Supabase Auth 이메일 템플릿
 ├── data/data.txt             # 합격 자소서 원본 (39건)
 ├── PLAN.md                   # 상세 기획 문서
 └── CLAUDE.md                 # 개발 컨텍스트

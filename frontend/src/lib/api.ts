@@ -21,6 +21,7 @@ export const api = {
   generate: (data: {
     question: string;
     job_posting: string;
+    job_analysis?: Record<string, unknown>;
     resume_id?: number;
     resume_text?: string;
     char_limit?: number;

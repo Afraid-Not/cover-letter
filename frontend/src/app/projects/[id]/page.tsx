@@ -109,6 +109,11 @@ export default function ProjectPage({
   // Step 1
   const [editingJobPosting, setEditingJobPosting] = useState(false);
   const [jobPostingDraft, setJobPostingDraft] = useState("");
+  const [editingAnalysis, setEditingAnalysis] = useState(false);
+  const [analysisDraft, setAnalysisDraft] = useState<
+    Project["job_analysis"] | null
+  >(null);
+  const [savingAnalysis, setSavingAnalysis] = useState(false);
 
   // Step 2
   const [resumes, setResumes] = useState<Resume[]>([]);
@@ -172,7 +177,14 @@ export default function ProjectPage({
   const isLoading = genStep === "generating" || genStep === "evaluating";
 
   const isStepComplete = (stepId: number) => {
-    if (stepId === 1) return !!project?.job_posting;
+    if (stepId === 1)
+      return (
+        !!project?.job_posting &&
+        !!project?.job_analysis?.company &&
+        project.job_analysis.company !== "미확인" &&
+        !!project?.job_analysis?.position &&
+        project.job_analysis.position !== "미확인"
+      );
     if (stepId === 2) return !!selectedResumeId || !!resumeText;
     if (stepId === 3) return mode === "general" || question.length > 0;
     if (stepId === 4) return genStep === "done";
@@ -219,6 +231,7 @@ export default function ProjectPage({
       const result = await api.generate({
         question: effectiveQuestion,
         job_posting: project.job_posting,
+        job_analysis: project.job_analysis,
         resume_id: selectedResumeId ?? undefined,
         resume_text: selectedResumeId ? undefined : resumeText,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -273,6 +286,7 @@ export default function ProjectPage({
       const result = await api.generate({
         question: effectiveQuestion,
         job_posting: project.job_posting,
+        job_analysis: project.job_analysis,
         resume_id: selectedResumeId ?? undefined,
         resume_text: selectedResumeId ? undefined : resumeText,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -433,59 +447,245 @@ export default function ProjectPage({
               {/* Analysis summary */}
               {project.job_analysis && (
                 <div className="rounded-lg border border-border bg-accent/20 p-4 space-y-3">
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">회사</p>
-                      <p className="font-medium">{company}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">직무</p>
-                      <p className="font-medium">{position}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">경력</p>
-                      <p className="font-medium">
-                        {project.job_analysis.experience_level}
-                      </p>
-                    </div>
-                  </div>
-                  {project.job_analysis.required_skills?.length > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1.5">
-                        필수 역량
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {project.job_analysis.required_skills.map(
-                          (s: string) => (
-                            <Badge
-                              key={s}
-                              variant="secondary"
-                              className="text-[11px]"
-                            >
-                              {s}
-                            </Badge>
-                          ),
-                        )}
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      분석 결과
+                    </p>
+                    {!editingAnalysis ? (
+                      <button
+                        onClick={() => {
+                          setAnalysisDraft({ ...project.job_analysis });
+                          setEditingAnalysis(true);
+                        }}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        수정
+                      </button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingAnalysis(false)}
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                          disabled={savingAnalysis}
+                        >
+                          취소
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!analysisDraft) return;
+                            setSavingAnalysis(true);
+                            await api.updateProject(project.id, {
+                              job_analysis: analysisDraft,
+                            } as Partial<Project>);
+                            setProject({
+                              ...project,
+                              job_analysis: analysisDraft,
+                            });
+                            setEditingAnalysis(false);
+                            setSavingAnalysis(false);
+                          }}
+                          className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                          disabled={savingAnalysis}
+                        >
+                          {savingAnalysis ? "저장 중..." : "저장"}
+                        </button>
                       </div>
-                    </div>
-                  )}
-                  {project.job_analysis.keywords?.length > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1.5">
-                        키워드
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {project.job_analysis.keywords.map((k: string) => (
-                          <Badge
-                            key={k}
-                            variant="outline"
-                            className="text-[11px]"
-                          >
-                            {k}
-                          </Badge>
+                    )}
+                  </div>
+
+                  {editingAnalysis && analysisDraft ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-muted-foreground block mb-1">
+                            회사
+                          </label>
+                          <input
+                            type="text"
+                            value={analysisDraft.company}
+                            onChange={(e) =>
+                              setAnalysisDraft({
+                                ...analysisDraft,
+                                company: e.target.value,
+                              })
+                            }
+                            className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground block mb-1">
+                            직무
+                          </label>
+                          <input
+                            type="text"
+                            value={analysisDraft.position}
+                            onChange={(e) =>
+                              setAnalysisDraft({
+                                ...analysisDraft,
+                                position: e.target.value,
+                              })
+                            }
+                            className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground block mb-1">
+                            경력
+                          </label>
+                          <input
+                            type="text"
+                            value={analysisDraft.experience_level}
+                            onChange={(e) =>
+                              setAnalysisDraft({
+                                ...analysisDraft,
+                                experience_level: e.target.value,
+                              })
+                            }
+                            className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                        </div>
+                      </div>
+                      <div className="border-t border-border/50 pt-3 space-y-3">
+                        {(
+                          [
+                            ["required_skills", "필수 역량"],
+                            ["preferred_skills", "우대 역량"],
+                            ["responsibilities", "주요 업무"],
+                            ["keywords", "핵심 키워드"],
+                            ["culture_keywords", "조직문화 키워드"],
+                          ] as const
+                        ).map(([key, label]) => (
+                          <div key={key}>
+                            <label className="text-xs text-muted-foreground block mb-1.5">
+                              {label}
+                            </label>
+                            <div className="flex flex-wrap gap-1.5 mb-1.5">
+                              {(analysisDraft[key] || []).map(
+                                (tag: string, i: number) => (
+                                  <span
+                                    key={i}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent text-xs"
+                                  >
+                                    {tag}
+                                    <button
+                                      onClick={() =>
+                                        setAnalysisDraft({
+                                          ...analysisDraft,
+                                          [key]: analysisDraft[key].filter(
+                                            (_: string, j: number) => j !== i,
+                                          ),
+                                        })
+                                      }
+                                      className="text-muted-foreground hover:text-destructive transition-colors"
+                                    >
+                                      <svg
+                                        className="w-3 h-3"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          d="M6 18 18 6M6 6l12 12"
+                                        />
+                                      </svg>
+                                    </button>
+                                  </span>
+                                ),
+                              )}
+                            </div>
+                            <div className="flex gap-1.5">
+                              <input
+                                type="text"
+                                placeholder="입력 후 Enter"
+                                className="flex-1 h-7 rounded-md border border-input bg-transparent px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                                onKeyDown={(e) => {
+                                  if (
+                                    e.key === "Enter" &&
+                                    e.currentTarget.value.trim()
+                                  ) {
+                                    e.preventDefault();
+                                    const v = e.currentTarget.value.trim();
+                                    if (!analysisDraft[key].includes(v)) {
+                                      setAnalysisDraft({
+                                        ...analysisDraft,
+                                        [key]: [...analysisDraft[key], v],
+                                      });
+                                    }
+                                    e.currentTarget.value = "";
+                                  }
+                                }}
+                              />
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">
+                            회사
+                          </p>
+                          <p className="font-medium">{company}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">
+                            직무
+                          </p>
+                          <p className="font-medium">{position}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">
+                            경력
+                          </p>
+                          <p className="font-medium">
+                            {project.job_analysis.experience_level}
+                          </p>
+                        </div>
+                      </div>
+                      {project.job_analysis.required_skills?.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1.5">
+                            필수 역량
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {project.job_analysis.required_skills.map(
+                              (s: string) => (
+                                <Badge
+                                  key={s}
+                                  variant="secondary"
+                                  className="text-[11px]"
+                                >
+                                  {s}
+                                </Badge>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {project.job_analysis.keywords?.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1.5">
+                            키워드
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {project.job_analysis.keywords.map((k: string) => (
+                              <Badge
+                                key={k}
+                                variant="outline"
+                                className="text-[11px]"
+                              >
+                                {k}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -606,7 +806,7 @@ export default function ProjectPage({
               <div className="flex justify-end">
                 <Button
                   onClick={() => setActiveStep(2)}
-                  disabled={!project.job_posting && !editingJobPosting}
+                  disabled={!isStepComplete(1)}
                 >
                   다음
                 </Button>

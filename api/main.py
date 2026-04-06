@@ -34,6 +34,7 @@ class AnalyzeJobRequest(BaseModel):
 class GenerateRequest(BaseModel):
     question: str
     job_posting: str
+    job_analysis: dict | None = None
     resume_id: int | None = None
     resume_text: str | None = None
     char_limit: int | None = None
@@ -117,8 +118,8 @@ async def generate(req: GenerateRequest):
     from src.parser import get_resume, process_resume
     from src.retriever import search_similar
 
-    # 채용공고 분석
-    job_analysis = analyze_job_posting(req.job_posting)
+    # 채용공고 분석 (프론트에서 전달된 job_analysis가 있으면 재분석 스킵)
+    job_analysis = req.job_analysis if req.job_analysis else analyze_job_posting(req.job_posting)
 
     # 이력서 resolve
     if req.resume_id:
