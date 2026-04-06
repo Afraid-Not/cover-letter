@@ -114,9 +114,6 @@ export default function SignupPage() {
             <br />
             당신의 자소서를 심사합니다
           </p>
-          <p className="text-sm text-muted-foreground mt-3">
-            합격 자소서 136건 기반 RAG + LLM-as-a-Judge
-          </p>
         </div>
       </div>
     </div>
