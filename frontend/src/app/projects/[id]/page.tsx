@@ -13,7 +13,7 @@ import {
 } from "@/components/evaluation-card";
 import { EvaluationStream } from "@/components/evaluation-stream";
 import { api, getProjectStatus } from "@/lib/api";
-import type { Project, EvaluatorEvent } from "@/lib/api";
+import type { Project, ProjectVersion, EvaluatorEvent } from "@/lib/api";
 
 interface Resume {
   id: number;
@@ -207,6 +207,10 @@ export default function ProjectPage({
   const [evalResult, setEvalResult] = useState<any>(null);
   const [error, setError] = useState("");
   const [showPolicyError, setShowPolicyError] = useState(false);
+  const [versions, setVersions] = useState<ProjectVersion[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(
+    null,
+  );
 
   // Load project + resumes
   useEffect(() => {
@@ -224,11 +228,21 @@ export default function ProjectPage({
         if (proj.mode) setMode(proj.mode as "question" | "general");
         if (proj.question) setQuestion(proj.question);
         if (proj.char_limit) setCharLimit(String(proj.char_limit));
-        if (proj.answer) {
+
+        // 버전 이력 복원 — 버전이 있으면 최신 버전 기준으로 표시
+        if (proj.versions && proj.versions.length > 0) {
+          setVersions(proj.versions);
+          const latest = proj.versions[proj.versions.length - 1];
+          setAnswer(latest.answer);
+          setCharCount(latest.answer.length);
+          setEvalResult(latest.evaluation);
+          setSelectedVersionId(latest.id);
+        } else if (proj.answer) {
+          // 버전 없는 기존 프로젝트 호환
           setAnswer(proj.answer);
           setCharCount(proj.answer.length);
+          if (proj.evaluation) setEvalResult(proj.evaluation);
         }
-        if (proj.evaluation) setEvalResult(proj.evaluation);
 
         // Determine initial step
         const status = getProjectStatus(proj);
@@ -315,12 +329,6 @@ export default function ProjectPage({
       setAnswer(result.answer);
       setCharCount(result.char_count);
 
-      // Save answer
-      await api.updateProject(project.id, {
-        answer: result.answer,
-        job_analysis: result.job_analysis,
-      } as Partial<Project>);
-
       setGenStep("evaluating");
       setEvalEvents([]);
 
@@ -336,10 +344,18 @@ export default function ProjectPage({
       setEvalResult(evalRes);
       setGenStep("done");
 
-      // Save evaluation
-      await api.updateProject(project.id, {
+      // 새 버전으로 저장 (덮어쓰지 않고 이력 보존)
+      const version = await api.createVersion(project.id, {
+        answer: result.answer,
         evaluation: evalRes,
-      } as Partial<Project>);
+        question: effectiveQuestion,
+        mode,
+        char_limit: charLimit ? parseInt(charLimit) : undefined,
+        resume_id: selectedResumeId ?? undefined,
+        job_analysis: result.job_analysis,
+      });
+      setVersions((prev) => [...prev, version]);
+      setSelectedVersionId(version.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "API error");
       setGenStep("idle");
@@ -372,10 +388,6 @@ export default function ProjectPage({
       setAnswer(result.answer);
       setCharCount(result.char_count);
 
-      await api.updateProject(project.id, {
-        answer: result.answer,
-      } as Partial<Project>);
-
       setGenStep("evaluating");
       setEvalEvents([]);
 
@@ -391,9 +403,18 @@ export default function ProjectPage({
       setEvalResult(evalRes);
       setGenStep("done");
 
-      await api.updateProject(project.id, {
+      // 새 버전으로 저장 (덮어쓰지 않고 이력 보존)
+      const version = await api.createVersion(project.id, {
+        answer: result.answer,
         evaluation: evalRes,
-      } as Partial<Project>);
+        question: effectiveQuestion,
+        mode,
+        char_limit: charLimit ? parseInt(charLimit) : undefined,
+        resume_id: selectedResumeId ?? undefined,
+        job_analysis: project.job_analysis,
+      });
+      setVersions((prev) => [...prev, version]);
+      setSelectedVersionId(version.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "API error");
       setGenStep("done");
@@ -495,11 +516,11 @@ export default function ProjectPage({
                       </span>
                       <div className="min-w-0">
                         <p
-                          className={`text-sm font-medium ${isActive ? "text-foreground" : "text-muted-foreground"}`}
+                          className={`text-base font-semibold ${isActive ? "text-white" : "text-white/70"}`}
                         >
                           {step.title}
                         </p>
-                        <p className="text-[11px] text-muted-foreground/60 mt-0.5 truncate">
+                        <p className="text-xs text-muted-foreground/70 mt-0.5 break-words whitespace-normal">
                           {step.description}
                         </p>
                       </div>
@@ -525,7 +546,7 @@ export default function ProjectPage({
 
               {/* Analysis summary */}
               {project.job_analysis && (
-                <div className="rounded-lg border border-border bg-accent/20 p-4 space-y-3">
+                <div className="rounded-lg border border-border bg-card p-4 space-y-3">
                   <div className="flex items-center justify-between mb-1">
                     <p className="text-xs font-medium text-muted-foreground">
                       분석 결과
@@ -884,7 +905,7 @@ export default function ProjectPage({
                     autoFocus
                   />
                 ) : (
-                  <div className="whitespace-pre-wrap text-sm text-muted-foreground bg-accent/20 rounded-lg p-4 max-h-72 overflow-y-auto border border-border/50">
+                  <div className="whitespace-pre-wrap text-sm text-muted-foreground bg-card rounded-lg p-4 max-h-72 overflow-y-auto border border-border">
                     {project.job_posting}
                   </div>
                 )}
@@ -1074,7 +1095,7 @@ export default function ProjectPage({
               <Separator />
 
               {/* Summary */}
-              <div className="rounded-lg border border-border bg-accent/20 p-4 space-y-2">
+              <div className="rounded-lg border border-border bg-card p-4 space-y-2">
                 <p className="text-sm font-medium">생성 요약</p>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
                   <span className="text-muted-foreground">회사</span>
@@ -1144,6 +1165,34 @@ export default function ProjectPage({
                 </div>
               )}
 
+              {/* 버전 스위처 */}
+              {versions.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-muted-foreground">버전</span>
+                  {versions.map((v, i) => (
+                    <Button
+                      key={v.id}
+                      size="sm"
+                      variant={
+                        selectedVersionId === v.id ? "default" : "outline"
+                      }
+                      className="h-7 px-3 text-xs"
+                      onClick={() => {
+                        setAnswer(v.answer);
+                        setCharCount(v.answer.length);
+                        setEvalResult(v.evaluation);
+                        setSelectedVersionId(v.id);
+                        setEvalEvents([]);
+                      }}
+                    >
+                      v{i + 1}
+                      {v.evaluation?.overall_pass_probability != null &&
+                        ` · ${Math.round(v.evaluation.overall_pass_probability * 100)}%`}
+                    </Button>
+                  ))}
+                </div>
+              )}
+
               {/* Answer + Evaluation 병렬 레이아웃 */}
               {answer && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1165,7 +1214,7 @@ export default function ProjectPage({
                             </Badge>
                           )}
                         </div>
-                        <div className="whitespace-pre-wrap text-sm leading-relaxed bg-accent/20 rounded-lg p-4 border border-border/50">
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed bg-accent/10 rounded-lg p-4 border border-border">
                           {answer}
                         </div>
                         <div className="flex gap-2 mt-3">

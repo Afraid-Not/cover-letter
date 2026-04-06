@@ -160,6 +160,32 @@ export const api = {
     });
   },
 
+  createVersion: async (
+    projectId: number,
+    data: {
+      answer: string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      evaluation?: any;
+      question?: string;
+      mode?: string;
+      char_limit?: number;
+      resume_id?: number;
+      job_analysis?: Record<string, unknown>;
+    },
+  ): Promise<ProjectVersion> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/projects/${projectId}/versions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || `버전 저장 실패 (${r.status})`);
+    }
+    return r.json();
+  },
+
   evaluateStream: async (
     data: {
       question: string;
@@ -205,8 +231,22 @@ export const api = {
 
 // ── 프로젝트 타입 ──
 
+export interface ProjectVersion {
+  id: number;
+  answer: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  evaluation: any | null;
+  created_at: string;
+  question: string;
+  mode: string;
+  char_limit: number | null;
+  resume_id: number | null;
+  job_analysis: Project["job_analysis"];
+}
+
 export interface Project {
   id: number;
+  project_id: number | null;
   job_posting: string;
   job_analysis: {
     company: string;
@@ -226,6 +266,7 @@ export interface Project {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   evaluation: any | null;
   created_at: string;
+  versions?: ProjectVersion[];
 }
 
 export type ProjectStatus = "draft" | "ready" | "generated" | "evaluated";

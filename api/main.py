@@ -74,6 +74,15 @@ class UpdateProjectRequest(BaseModel):
     job_posting: str | None = None
     job_analysis: dict | None = None
 
+class CreateVersionRequest(BaseModel):
+    answer: str
+    evaluation: dict | None = None
+    question: str | None = None
+    mode: str | None = None
+    char_limit: int | None = None
+    resume_id: int | None = None
+    job_analysis: dict | None = None
+
 class ResumeRequest(BaseModel):
     source: str
     name: str | None = None
@@ -405,13 +414,13 @@ async def create_project(req: CreateProjectRequest, request: Request):
 
 @app.get("/api/projects")
 async def list_projects(request: Request):
-    """프로젝트 목록 조회."""
+    """프로젝트 목록 조회 (루트 프로젝트만)."""
     token = _extract_token(request)
     sb = _get_sb(token)
     try:
         result = sb.table("generations").select(
             "id, question, mode, char_limit, created_at, answer, evaluation, job_analysis, job_posting"
-        ).order("created_at", desc=True).limit(50).execute()
+        ).is_("project_id", "null").order("created_at", desc=True).limit(50).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB query failed: {e}")
     return result.data
@@ -419,14 +428,17 @@ async def list_projects(request: Request):
 
 @app.get("/api/projects/{project_id}")
 async def get_project(project_id: int, request: Request):
-    """프로젝트 상세 조회."""
+    """프로젝트 상세 조회 (버전 목록 포함)."""
     token = _extract_token(request)
     sb = _get_sb(token)
     try:
         result = sb.table("generations").select("*").eq("id", project_id).single().execute()
+        versions = sb.table("generations").select(
+            "id, answer, evaluation, created_at, question, mode, char_limit, resume_id, job_analysis"
+        ).eq("project_id", project_id).order("created_at").execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB query failed: {e}")
-    return result.data
+    return {**result.data, "versions": versions.data}
 
 
 @app.patch("/api/projects/{project_id}")
@@ -456,3 +468,45 @@ async def delete_project(project_id: int, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB delete failed: {e}")
     return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/versions")
+async def create_project_version(project_id: int, req: CreateVersionRequest, request: Request):
+    """새 버전(재생성 이력) 저장 — 루트 프로젝트 행은 최신 상태로 업데이트."""
+    token = _extract_token(request)
+    user_id = _get_user_id(token) if token else None
+    sb = _get_sb(token)
+
+    # 루트 프로젝트 조회
+    root_result = sb.table("generations").select("*").eq("id", project_id).single().execute()
+    if not root_result.data:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    root = root_result.data
+
+    # 버전 행 생성
+    version_data = {
+        "project_id": project_id,
+        "job_posting": root["job_posting"],
+        "job_analysis": req.job_analysis or root["job_analysis"],
+        "question": req.question or root["question"],
+        "mode": req.mode or root["mode"],
+        "char_limit": req.char_limit if req.char_limit is not None else root["char_limit"],
+        "resume_id": req.resume_id if req.resume_id is not None else root["resume_id"],
+        "answer": req.answer,
+        "evaluation": req.evaluation,
+    }
+    if user_id:
+        version_data["user_id"] = user_id
+
+    try:
+        version_result = sb.table("generations").insert(version_data).execute()
+
+        # 루트 행도 최신 answer/evaluation 으로 업데이트 (대시보드 status 표시용)
+        root_update: dict = {"answer": req.answer}
+        if req.evaluation:
+            root_update["evaluation"] = req.evaluation
+        sb.table("generations").update(root_update).eq("id", project_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"버전 저장 실패: {e}")
+
+    return version_result.data[0]
