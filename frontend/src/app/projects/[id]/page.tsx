@@ -96,6 +96,77 @@ const TrashIcon = () => (
 
 type GenStep = "idle" | "generating" | "evaluating" | "done";
 
+const PolicyErrorModal = ({ onClose }: { onClose: () => void }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+      onClick={onClose}
+    />
+    <div className="relative bg-card border border-border rounded-xl shadow-lg w-full max-w-md p-6 space-y-4 animate-fade-in">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-amber-400/10 flex items-center justify-center shrink-0">
+          <svg
+            className="w-5 h-5 text-amber-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+            />
+          </svg>
+        </div>
+        <div>
+          <h3 className="text-base font-semibold">보안 정책으로 분석 실패</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            AI가 이미지 분석을 거부했습니다. 아래 방법 중 하나를 시도해보세요.
+          </p>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-accent/10 p-4 space-y-2.5 text-sm">
+        <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">
+          해결 방법
+        </p>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <span className="text-primary font-bold shrink-0">1.</span>
+            <p>
+              채용공고를 <span className="font-medium">직접 타이핑</span>하거나
+              일부만 붙여넣어 다시 시도해주세요.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-primary font-bold shrink-0">2.</span>
+            <p>
+              회사명·직무·필수조건·우대조건이 보이는{" "}
+              <span className="font-medium">부분만 캡쳐</span>해서
+              업로드해주세요.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-primary font-bold shrink-0">3.</span>
+            <p>
+              특수문자나 민감한 내용이 포함된 경우 해당 부분을{" "}
+              <span className="font-medium">제거 후 재시도</span>해주세요.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-end">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+        >
+          다시 시도
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 export default function ProjectPage({
   params,
 }: {
@@ -135,6 +206,7 @@ export default function ProjectPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [evalResult, setEvalResult] = useState<any>(null);
   const [error, setError] = useState("");
+  const [showPolicyError, setShowPolicyError] = useState(false);
 
   // Load project + resumes
   useEffect(() => {
@@ -348,6 +420,9 @@ export default function ProjectPage({
 
   return (
     <div>
+      {showPolicyError && (
+        <PolicyErrorModal onClose={() => setShowPolicyError(false)} />
+      )}
       {/* Top bar */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
@@ -783,6 +858,14 @@ export default function ProjectPage({
                             const file = e.target.files?.[0];
                             if (!file) return;
                             const res = await api.parseImage(file);
+                            const isRefusal =
+                              /i'm sorry|i apologize|sorry,|죄송합니다|정책상|can't assist/i.test(
+                                res.text ?? "",
+                              );
+                            if (isRefusal) {
+                              setShowPolicyError(true);
+                              return;
+                            }
                             setJobPostingDraft(res.text);
                             setEditingJobPosting(true);
                           }}
