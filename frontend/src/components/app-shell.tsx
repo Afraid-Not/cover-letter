@@ -8,16 +8,14 @@ import { useAuth } from "@/components/auth-provider";
 export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname();
   const { user } = useAuth();
-  const isLoginPage = pathname === "/login";
   const isPublicPage =
-    pathname === "/terms" || pathname === "/privacy" || pathname === "/signup";
+    pathname === "/login" ||
+    pathname === "/signup" ||
+    pathname === "/terms" ||
+    pathname === "/privacy";
 
   if (isPublicPage) {
     return <main className="flex-1 overflow-y-auto noise-bg">{children}</main>;
-  }
-
-  if (isLoginPage) {
-    return <AuthGuard>{children}</AuthGuard>;
   }
 
   return (
