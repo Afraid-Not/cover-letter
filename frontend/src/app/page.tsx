@@ -572,11 +572,11 @@ export default function DashboardPage() {
         <Card className="animate-fade-in border-primary/30">
           <CardContent className="pt-5 space-y-4">
             {/* 캡쳐 안내 박스 */}
-            <div className="rounded-lg border border-primary/20 bg-primary/[0.04] px-4 py-3 space-y-1.5">
-              <p className="text-xs font-medium text-primary/80">
+            <div className="rounded-lg border border-primary/30 bg-primary/10 px-5 py-4 space-y-2.5">
+              <p className="text-sm font-extrabold text-white">
                 📸 이런 부분을 캡쳐하거나 텍스트로 붙여넣으세요
               </p>
-              <ul className="text-xs text-muted-foreground space-y-0.5 pl-1">
+              <ul className="text-sm font-bold text-white space-y-1 pl-1">
                 <li>· 회사명 및 채용 직무명</li>
                 <li>· 경력 유무 (신입 / 경력 / 무관)</li>
                 <li>· 필수 조건 (자격요건)</li>
