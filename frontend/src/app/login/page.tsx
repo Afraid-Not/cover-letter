@@ -24,7 +24,12 @@ export default function LoginPage() {
         email,
         password,
       });
-      if (error) throw error;
+      if (error) {
+        if (error.message === "Invalid login credentials") {
+          throw new Error("이메일 또는 비밀번호를 확인해주세요.");
+        }
+        throw error;
+      }
       router.push("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : "오류가 발생했습니다");
