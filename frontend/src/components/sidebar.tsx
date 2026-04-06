@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
@@ -63,17 +64,18 @@ export const Sidebar = () => {
 
       {/* Logo */}
       <div className="relative px-4 py-5 flex items-center gap-3">
-        <div className="w-8 h-8 shrink-0 rounded-lg bg-primary/15 flex items-center justify-center">
-          <span className="text-primary text-sm font-bold">A</span>
-        </div>
-        <div
-          className={`whitespace-nowrap transition-opacity duration-200 ${expanded ? "opacity-100" : "opacity-0"}`}
+        <Image
+          src="/logo.png"
+          alt="AURA"
+          width={40}
+          height={29}
+          className="shrink-0"
+        />
+        <h1
+          className={`text-xl font-semibold tracking-widest whitespace-nowrap transition-opacity duration-200 font-[family-name:var(--font-playfair)] ${expanded ? "opacity-100" : "opacity-0"}`}
         >
-          <h1 className="text-sm font-semibold tracking-tight">AURA</h1>
-          <p className="text-[10px] text-muted-foreground/60 tracking-widest uppercase">
-            Cover Letter Generator
-          </p>
-        </div>
+          AURA
+        </h1>
       </div>
 
       {/* Nav */}
@@ -115,8 +117,27 @@ export const Sidebar = () => {
         })}
       </nav>
 
-      {/* Logout */}
-      <div className="relative px-2 pb-4">
+      {/* Footer */}
+      <div className="relative px-2 pb-4 space-y-1">
+        {/* Legal links */}
+        <div
+          className={`flex gap-2 px-3 py-1 transition-opacity duration-200 ${expanded ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+        >
+          <Link
+            href="/terms"
+            className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          >
+            이용약관
+          </Link>
+          <span className="text-[10px] text-muted-foreground/20">|</span>
+          <Link
+            href="/privacy"
+            className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          >
+            개인정보처리방침
+          </Link>
+        </div>
+
         <button
           onClick={signOut}
           title={!expanded ? "로그아웃" : undefined}

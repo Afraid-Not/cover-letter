@@ -253,6 +253,16 @@ async def get_resume(resume_id: int):
         raise HTTPException(status_code=500, detail=f"이력서 조회 실패: {e}")
 
 
+@app.delete("/api/resumes/{resume_id}")
+async def delete_resume(resume_id: int):
+    from src.parser import delete_resume
+    try:
+        delete_resume(resume_id)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"이력서 삭제 실패: {e}")
+
+
 @app.post("/api/parse-image")
 async def parse_image(file: UploadFile = File(...)):
     """이미지/PDF에서 GPT-4o 비전으로 텍스트를 추출한다."""

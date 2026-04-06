@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 
 interface Resume {
@@ -49,6 +48,16 @@ export default function ResumesPage() {
       // handle error
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("이 이력서를 삭제하시겠습니까?")) return;
+    try {
+      await api.deleteResume(id);
+      loadResumes();
+    } catch {
+      // handle error
     }
   };
 
@@ -176,7 +185,14 @@ export default function ResumesPage() {
                     {r.updated_at?.slice(0, 10)} 업데이트
                   </p>
                 </div>
-                <Badge variant="secondary">ID: {r.id}</Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => handleDelete(r.id)}
+                >
+                  삭제
+                </Button>
               </CardContent>
             </Card>
           ))

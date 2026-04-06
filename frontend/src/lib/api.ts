@@ -53,6 +53,11 @@ export const api = {
       body: JSON.stringify({ source, name }),
     }).then((r) => r.json()),
 
+  deleteResume: (id: number) =>
+    fetch(`${API_BASE}/api/resumes/${id}`, { method: "DELETE" }).then((r) =>
+      r.json(),
+    ),
+
   uploadResume: (file: File, name?: string) => {
     const formData = new FormData();
     formData.append("file", file);

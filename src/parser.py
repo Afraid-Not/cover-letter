@@ -123,6 +123,12 @@ def get_resume(resume_id: int) -> dict:
     return result.data
 
 
+def delete_resume(resume_id: int) -> bool:
+    """이력서를 삭제한다."""
+    supabase.table("resumes").delete().eq("id", resume_id).execute()
+    return True
+
+
 def get_resume_by_name(name: str) -> dict | None:
     """이름으로 저장된 이력서를 조회한다."""
     result = supabase.table("resumes").select("*").eq("name", name).execute()
