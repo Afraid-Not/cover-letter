@@ -111,7 +111,9 @@ cover-letter/
 - 메인 대시보드(`/`) → 프로젝트 카드 목록 (status: draft/ready/generated/evaluated)
 - 프로젝트 생성 → 채용공고 입력 → 자동 분석 → 분석 결과 확인/수정 모달 → `/projects/[id]`로 이동
 - 프로젝트 상세(`/projects/[id]`) → 4단계 위자드: 채용공고 → 이력서 → 작성설정 → 결과
+- Step 1에서 채용 공고 요약 + 회사 정보를 2열 그리드로 나란히 표시 (`grid-cols-2 items-stretch`)
 - Step 1에서 분석 결과(회사/직무/역량/키워드) 인라인 수정 가능
+- 회사 정보 자동 조사 결과 없을 시 미션/비전/주요 제품서비스 직접 입력 폼 표시 → `company_research jsonb`에 저장
 - 회사명/직무 미입력 시 다음 단계 진행 불가
 - 프로젝트 데이터는 `generations` 테이블 재사용 (별도 테이블 없음)
 

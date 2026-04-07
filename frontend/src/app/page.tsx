@@ -3,36 +3,59 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { BentoGrid } from "@/components/ui/bento-grid";
 import { api, getProjectStatus } from "@/lib/api";
 import type { Project, ProjectStatus } from "@/lib/api";
+import { AiLoader } from "@/components/ui/ai-loader";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 
 const STATUS_CONFIG: Record<
   ProjectStatus,
-  { label: string; color: string; accent: string }
+  {
+    label: string;
+    color: string;
+    accent: string;
+    statusColor: string;
+    accentGradient: string;
+    iconGlow: string;
+  }
 > = {
   draft: {
-    label: "채용공고만 입력됨",
-    color: "bg-muted/50 text-muted-foreground/80",
-    accent: "bg-muted-foreground/20",
+    label: "작성 중",
+    color: "bg-muted text-muted-foreground",
+    accent: "bg-muted-foreground/30",
+    statusColor: "bg-muted text-muted-foreground group-hover:bg-accent",
+    accentGradient: "from-zinc-500/15 via-zinc-500/5 to-transparent",
+    iconGlow: "bg-zinc-400/20",
   },
   ready: {
     label: "이력서 설정 완료",
-    color: "bg-sky-400/8 text-sky-300/70",
-    accent: "bg-sky-400/40",
+    color: "bg-sky-100 text-sky-600",
+    accent: "bg-sky-400",
+    statusColor: "bg-sky-100 text-sky-700 group-hover:bg-sky-200",
+    accentGradient: "from-sky-400/20 via-sky-400/5 to-transparent",
+    iconGlow: "bg-sky-400/15",
   },
   generated: {
     label: "자소서 생성 완료",
-    color: "bg-amber-400/8 text-amber-300/70",
-    accent: "bg-amber-300/40",
+    color: "bg-amber-100 text-amber-700",
+    accent: "bg-amber-400",
+    statusColor: "bg-amber-100 text-amber-700 group-hover:bg-amber-200",
+    accentGradient: "from-amber-400/20 via-amber-400/5 to-transparent",
+    iconGlow: "bg-amber-400/15",
   },
   evaluated: {
     label: "평가 완료",
-    color: "bg-emerald-400/8 text-emerald-300/70",
-    accent: "bg-emerald-400/40",
+    color: "bg-emerald-100 text-emerald-700",
+    accent: "bg-emerald-500",
+    statusColor: "bg-emerald-100 text-emerald-700 group-hover:bg-emerald-200",
+    accentGradient: "from-emerald-500/20 via-emerald-500/5 to-transparent",
+    iconGlow: "bg-emerald-400/15",
   },
 };
 
@@ -404,14 +427,12 @@ const AnalysisConfirmModal = ({
         className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative bg-card border border-border rounded-xl shadow-lg w-full max-w-lg max-h-[85vh] overflow-y-auto p-6 space-y-4 animate-fade-in">
+      <div className="relative bg-card border border-border rounded-xl shadow-lg w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6 space-y-4 animate-fade-in">
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-base font-semibold">채용공고 분석 결과</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {editing
-                ? "각 항목을 직접 수정할 수 있습니다"
-                : "분석 결과를 확인해주세요"}
+              분석 결과를 확인해주세요
             </p>
           </div>
           {!editing && (
@@ -478,6 +499,7 @@ const AnalysisConfirmModal = ({
 export default function DashboardPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [resumeMap, setResumeMap] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [jobPosting, setJobPosting] = useState("");
@@ -492,11 +514,22 @@ export default function DashboardPage() {
   const [confirmProject, setConfirmProject] = useState<Project | null>(null);
   const [showPolicyError, setShowPolicyError] = useState(false);
 
+  useNavigationGuard(
+    creating || jobFileLoading,
+    "분석 작업이 진행 중입니다. 페이지를 벗어나면 작업이 중단됩니다.",
+  );
+
   useEffect(() => {
-    api
-      .listProjects()
-      .then((data) => {
-        setProjects(Array.isArray(data) ? data : []);
+    Promise.all([api.listProjects(), api.listResumes()])
+      .then(([projectData, resumeData]) => {
+        setProjects(Array.isArray(projectData) ? projectData : []);
+        const map: Record<number, string> = {};
+        if (Array.isArray(resumeData)) {
+          resumeData.forEach((r: { id: number; name: string }) => {
+            map[r.id] = r.name;
+          });
+        }
+        setResumeMap(map);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -545,14 +578,10 @@ export default function DashboardPage() {
       }
 
       setProjects((prev) => [project, ...(Array.isArray(prev) ? prev : [])]);
-
-      setCreatingStep("researching");
-      const researched = await api.researchCompany(project.id);
-
       setShowCreate(false);
       setJobPosting("");
       setJobFile(null);
-      setConfirmProject(researched);
+      setConfirmProject(project);
     } catch {
       // keep form open on error
     } finally {
@@ -561,273 +590,309 @@ export default function DashboardPage() {
     }
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">자소서 관리</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            채용공고별로 자소서를 생성하고 관리하세요
-          </p>
-        </div>
-        <Button onClick={() => setShowCreate(!showCreate)} className="gap-2">
-          <PlusIcon />새 자소서 만들기
-        </Button>
-      </div>
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
+  };
+  const itemVariants: Variants = {
+    hidden: { opacity: 0, y: 16 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.4, ease: "easeOut" as const },
+    },
+  };
 
-      {/* Create form */}
+  const createModal = (
+    <AnimatePresence>
       {showCreate && (
-        <Card className="animate-fade-in border-primary/30">
-          <CardContent className="pt-5 space-y-4">
-            {/* 캡쳐 안내 박스 */}
-            <div className="rounded-lg border border-primary/30 bg-primary/10 px-5 py-4 space-y-2.5">
-              <p className="text-sm font-extrabold text-white">
-                📸 이런 부분을 캡쳐하거나 텍스트로 붙여넣으세요
-              </p>
-              <ul className="text-sm font-bold text-white space-y-1 pl-1">
-                <li>· 회사명 및 채용 직무명</li>
-                <li>· 경력 유무 (신입 / 경력 / 무관)</li>
-                <li>· 필수 조건 (자격요건)</li>
-                <li>· 우대 조건</li>
-                <li>· 주요 업무 내용</li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-sm font-medium mb-2">채용공고 입력</p>
-              <Textarea
-                placeholder="채용공고 전문을 붙여넣으세요..."
-                value={jobPosting}
-                onChange={(e) => setJobPosting(e.target.value)}
-                rows={6}
-                disabled={creating}
-                className="resize-none"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <label
-                htmlFor="job-upload"
-                className={`
-                  inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border text-xs font-medium
-                  cursor-pointer transition-colors hover:bg-accent
-                  ${jobFileLoading ? "opacity-50 pointer-events-none" : ""}
-                `}
-              >
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
-                  />
-                </svg>
-                {jobFileLoading ? "추출 중..." : "스크린샷 / PDF 업로드"}
-                <input
-                  id="job-upload"
-                  type="file"
-                  accept=".png,.jpg,.jpeg,.webp,.gif,.pdf"
-                  className="sr-only"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setJobFile(file);
-                    setJobFileLoading(true);
-                    try {
-                      const res = await api.parseImage(file);
-                      setJobPosting(res.text);
-                    } catch {
-                      // handle error
-                    } finally {
-                      setJobFileLoading(false);
-                    }
-                  }}
-                  disabled={creating}
-                />
-              </label>
-              {jobFile && (
-                <span className="text-xs text-muted-foreground">
-                  {jobFile.name}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                {jobPosting.length > 0 &&
-                  `${jobPosting.length.toLocaleString()}자`}
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setShowCreate(false);
-                    setJobPosting("");
-                  }}
-                  disabled={creating}
-                >
-                  취소
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => handleCreate()}
-                  disabled={!jobPosting.trim() || creating}
-                >
-                  {creatingStep === "analyzing"
-                    ? "채용공고 분석 중..."
-                    : creatingStep === "researching"
-                      ? "회사 정보 조회 중..."
-                      : "프로젝트 생성"}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+        >
+          {/* Backdrop */}
+          <motion.div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => {
+              if (!creating) {
+                setShowCreate(false);
+                setJobPosting("");
+                setJobFile(null);
+              }
+            }}
+          />
 
-      {/* Loading */}
-      {loading && (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!loading && projects.length === 0 && !showCreate && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <BriefcaseIcon />
-          <p className="text-muted-foreground mt-4 text-sm">
-            아직 생성된 자소서가 없습니다
-          </p>
-          <p className="text-muted-foreground/60 text-xs mt-1">
-            첫 자소서를 만들어보세요
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4 gap-2"
-            onClick={() => setShowCreate(true)}
+          {/* Modal */}
+          <motion.div
+            className="relative z-10 w-full max-w-lg"
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            transition={{ duration: 0.22, ease: "easeOut" as const }}
           >
-            <PlusIcon />
-            시작하기
+            <Card className="border-primary/20 shadow-2xl flex flex-col max-h-[90vh]">
+              <CardContent className="pt-5 space-y-4 overflow-y-auto flex-1">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm font-semibold">새 자소서 만들기</p>
+                  <button
+                    onClick={() => {
+                      if (!creating) {
+                        setShowCreate(false);
+                        setJobPosting("");
+                        setJobFile(null);
+                      }
+                    }}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <XIcon />
+                  </button>
+                </div>
+                <div>
+                  <p className="text-sm font-medium mb-2">채용공고 입력</p>
+                  <Textarea
+                    placeholder="채용공고 전문을 붙여넣으세요..."
+                    value={jobPosting}
+                    onChange={(e) => setJobPosting(e.target.value)}
+                    rows={6}
+                    disabled={creating}
+                    className="resize-none"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <label
+                    htmlFor="job-upload-modal"
+                    className={`
+                    inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border text-xs font-medium
+                    cursor-pointer transition-colors hover:bg-accent
+                    ${jobFileLoading ? "opacity-50 pointer-events-none" : ""}
+                  `}
+                  >
+                    <svg
+                      className="w-3.5 h-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+                      />
+                    </svg>
+                    {jobFileLoading ? "추출 중..." : "스크린샷 / PDF 업로드"}
+                    <input
+                      id="job-upload-modal"
+                      type="file"
+                      accept=".png,.jpg,.jpeg,.webp,.gif,.pdf"
+                      className="sr-only"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setJobFile(file);
+                        setJobFileLoading(true);
+                        try {
+                          const res = await api.parseImage(file);
+                          setJobPosting(res.text);
+                        } catch {
+                          // handle error
+                        } finally {
+                          setJobFileLoading(false);
+                        }
+                      }}
+                      disabled={creating}
+                    />
+                  </label>
+                  {jobFile && (
+                    <span className="text-xs text-muted-foreground">
+                      {jobFile.name}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  필요한 정보 : 회사명, 직무, 경력 유무, 필수조건(역량),
+                  우대조건(역량), 주요 업무 내용
+                </p>
+              </CardContent>
+              {/* 항상 보이는 하단 액션 바 */}
+              <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0">
+                <p className="text-xs text-muted-foreground">
+                  {jobPosting.length > 0 &&
+                    `${jobPosting.length.toLocaleString()}자`}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowCreate(false);
+                      setJobPosting("");
+                      setJobFile(null);
+                    }}
+                    disabled={creating}
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleCreate()}
+                    disabled={!jobPosting.trim() || creating}
+                  >
+                    {creatingStep === "analyzing"
+                      ? "채용공고 분석 중..."
+                      : "프로젝트 생성"}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  return (
+    <>
+      {(creating || jobFileLoading) && <AiLoader />}
+      {typeof window !== "undefined" &&
+        createPortal(createModal, document.body)}
+      <motion.div
+        className="space-y-6"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-heading text-2xl text-foreground">
+              자소서 관리
+            </h2>
+          </div>
+          <Button onClick={() => setShowCreate(true)} className="gap-2">
+            <PlusIcon />새 자소서 만들기
           </Button>
         </div>
-      )}
 
-      {/* Project cards */}
-      {!loading && projects.length > 0 && (
-        <div className="grid grid-cols-2 gap-4">
-          {projects.map((project, idx) => {
-            const status = getProjectStatus(project);
-            const config = STATUS_CONFIG[status];
-            const company = project.job_analysis?.company || "회사명 미확인";
-            const position = project.job_analysis?.position || "직무 미확인";
-            const passProb = project.evaluation?.overall_pass_probability;
-            const date = new Date(project.created_at).toLocaleDateString(
-              "ko-KR",
-              {
-                month: "short",
-                day: "numeric",
-              },
-            );
+        {/* Loading */}
+        {loading && (
+          <div className="flex justify-center py-16">
+            <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          </div>
+        )}
 
-            return (
-              <div key={project.id ?? idx} className="group">
-                <button
-                  onClick={() => router.push(`/projects/${project.id}`)}
-                  className="w-full text-left"
-                >
-                  <div className="relative h-[160px] rounded-xl bg-card border border-border/50 p-4 overflow-hidden hover:border-primary/20 hover:bg-card/90 hover:shadow-lg hover:shadow-primary/[0.06] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer">
-                    <div
-                      className={`absolute left-0 top-4 bottom-4 w-[3px] rounded-full ${config.accent}`}
-                    />
-
-                    <div className="pl-3 h-full flex flex-col justify-between">
-                      <div>
-                        <div className="flex items-start justify-between">
-                          <p className="text-base font-medium truncate pr-4">
-                            {company}
-                          </p>
-                          <span className="text-xs text-muted-foreground/40 shrink-0">
-                            {date}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground/60 truncate mt-1">
-                          {position}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant="secondary"
-                            className={`text-xs border-0 ${config.color}`}
-                          >
-                            {config.label}
-                          </Badge>
-                          {passProb != null && (
-                            <Badge
-                              variant="secondary"
-                              className={`text-xs font-mono border-0 ${
-                                passProb >= 70
-                                  ? "bg-emerald-400/8 text-emerald-300/70"
-                                  : passProb >= 50
-                                    ? "bg-amber-400/8 text-amber-300/70"
-                                    : "bg-rose-400/8 text-rose-300/70"
-                              }`}
-                            >
-                              {passProb}%
-                            </Badge>
-                          )}
-                        </div>
-                        <span
-                          role="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (
-                              confirm("이 프로젝트를 정말 삭제하시겠습니까?")
-                            ) {
-                              handleDelete(e, project.id);
-                            }
-                          }}
-                          className="text-xs font-semibold px-2 py-0.5 rounded border border-destructive/40 text-destructive/70 hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer"
-                        >
-                          삭제
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </button>
+        {/* Empty state */}
+        <AnimatePresence>
+          {!loading && projects.length === 0 && !showCreate && (
+            <motion.div
+              className="flex flex-col items-center justify-center py-20 text-center"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.4 }}
+            >
+              <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
+                <BriefcaseIcon />
               </div>
-            );
-          })}
-        </div>
-      )}
+              <p className="font-heading text-xl text-foreground mt-2">
+                아직 생성된 자소서가 없습니다
+              </p>
+              <p className="text-muted-foreground text-sm mt-1">
+                첫 자소서를 만들어보세요
+              </p>
+              <Button
+                size="sm"
+                className="mt-5 gap-2"
+                onClick={() => setShowCreate(true)}
+              >
+                <PlusIcon />
+                시작하기
+              </Button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      {/* 정책 오류 모달 */}
-      {showPolicyError &&
-        createPortal(
-          <PolicyErrorModal onClose={() => setShowPolicyError(false)} />,
-          document.body,
+        {/* Project cards */}
+        {!loading && projects.length > 0 && (
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="visible"
+          >
+            <BentoGrid
+              items={projects.map((project) => {
+                const status = getProjectStatus(project);
+                const config = STATUS_CONFIG[status];
+                const company =
+                  project.job_analysis?.company || "회사명 미확인";
+                const position =
+                  project.job_analysis?.position || "직무 미확인";
+                const passProb = project.evaluation?.overall_pass_probability;
+                const date = new Date(project.created_at).toLocaleDateString(
+                  "ko-KR",
+                  { month: "short", day: "numeric" },
+                );
+
+                return {
+                  title: company,
+                  subtitle: position,
+                  meta: date,
+                  status: config.label,
+                  statusColor: config.statusColor,
+                  accentColor: config.accent,
+                  accentGradient: config.accentGradient,
+                  iconGlow: config.iconGlow,
+                  resumeName: project.resume_id
+                    ? resumeMap[project.resume_id]
+                    : undefined,
+                  tags: [],
+                  badge: passProb != null ? `${passProb}%` : undefined,
+                  badgeColor:
+                    passProb != null
+                      ? passProb >= 70
+                        ? "bg-emerald-100 text-emerald-700"
+                        : passProb >= 50
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-rose-100 text-rose-600"
+                      : undefined,
+                  onClick: () => router.push(`/projects/${project.id}`),
+                  onDelete: (e) => {
+                    e.stopPropagation();
+                    if (confirm("이 프로젝트를 정말 삭제하시겠습니까?")) {
+                      handleDelete(e, project.id);
+                    }
+                  },
+                };
+              })}
+            />
+          </motion.div>
         )}
 
-      {/* 분석 확인 모달 */}
-      {confirmProject &&
-        createPortal(
-          <AnalysisConfirmModal
-            project={confirmProject}
-            onConfirm={handleConfirmAnalysis}
-            onClose={() => {
-              setConfirmProject(null);
-              router.push(`/projects/${confirmProject.id}`);
-            }}
-          />,
-          document.body,
-        )}
-    </div>
+        {/* 정책 오류 모달 */}
+        {showPolicyError &&
+          createPortal(
+            <PolicyErrorModal onClose={() => setShowPolicyError(false)} />,
+            document.body,
+          )}
+
+        {/* 분석 확인 모달 */}
+        {confirmProject &&
+          createPortal(
+            <AnalysisConfirmModal
+              project={confirmProject}
+              onConfirm={handleConfirmAnalysis}
+              onClose={() => {
+                setConfirmProject(null);
+                router.push(`/projects/${confirmProject.id}`);
+              }}
+            />,
+            document.body,
+          )}
+      </motion.div>
+    </>
   );
 }
