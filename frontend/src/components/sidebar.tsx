@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import { api } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/", label: "자소서 관리", icon: "edit" },
@@ -14,7 +15,7 @@ const NAV_ITEMS = [
 const ICONS: Record<string, ReactNode> = {
   edit: (
     <svg
-      className="w-[18px] h-[18px]"
+      className="w-7 h-7"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -29,7 +30,7 @@ const ICONS: Record<string, ReactNode> = {
   ),
   file: (
     <svg
-      className="w-[18px] h-[18px]"
+      className="w-7 h-7"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -46,8 +47,38 @@ const ICONS: Record<string, ReactNode> = {
 
 export const Sidebar = () => {
   const pathname = usePathname();
-  const { signOut } = useAuth();
+  const { signOut, session } = useAuth();
   const [expanded, setExpanded] = useState(false);
+  const [hasResume, setHasResume] = useState<boolean | null>(null);
+  const [tooltipDismissed, setTooltipDismissed] = useState(false);
+  const resumeLinkRef = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    if (!session) return;
+    api
+      .listResumes()
+      .then((data: unknown[]) => {
+        setHasResume(Array.isArray(data) && data.length > 0);
+      })
+      .catch(() => {
+        setHasResume(true);
+      });
+  }, [session]);
+
+  const showTooltip = hasResume === false && !tooltipDismissed;
+
+  // Track resume link position for fixed tooltip
+  const [resumeLinkRect, setResumeLinkRect] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    if (!showTooltip) return;
+    const update = () => {
+      if (resumeLinkRef.current)
+        setResumeLinkRect(resumeLinkRef.current.getBoundingClientRect());
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [showTooltip, expanded]);
 
   return (
     <aside
@@ -55,12 +86,12 @@ export const Sidebar = () => {
       onMouseLeave={() => setExpanded(false)}
       className={`
         fixed top-0 left-0 h-screen z-40 flex flex-col
-        bg-sidebar/95 backdrop-blur-sm border-r border-border/30
+        bg-violet-50 border-r border-violet-200
         transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden
-        ${expanded ? "w-[220px] shadow-2xl shadow-black/25" : "w-16"}
+        ${expanded ? "w-[240px] shadow-2xl shadow-violet-200/60" : "w-[68px]"}
       `}
     >
-      <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.04] to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-violet-100/40 to-transparent pointer-events-none" />
 
       {/* Logo */}
       <div className="relative px-4 py-5 flex items-center gap-3">
@@ -72,7 +103,7 @@ export const Sidebar = () => {
           className="shrink-0"
         />
         <h1
-          className={`text-xl font-semibold tracking-widest whitespace-nowrap transition-opacity duration-200 font-[family-name:var(--font-playfair)] ${expanded ? "opacity-100" : "opacity-0"}`}
+          className={`text-xl font-semibold tracking-widest whitespace-nowrap transition-opacity duration-200 font-[family-name:var(--font-playfair)] text-violet-800 ${expanded ? "opacity-100" : "opacity-0"}`}
         >
           AURA
         </h1>
@@ -81,38 +112,41 @@ export const Sidebar = () => {
       {/* Nav */}
       <nav className="relative flex-1 px-2 mt-4 space-y-1">
         {NAV_ITEMS.map((item) => {
+          const isResumes = item.href === "/resumes";
           const isActive =
             item.href === "/"
               ? pathname === "/" || pathname.startsWith("/projects")
               : pathname === item.href;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={!expanded ? item.label : undefined}
-              className={`
-                flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200
-                ${
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                }
-              `}
-            >
-              <span
-                className={`shrink-0 ${isActive ? "text-primary" : "text-muted-foreground/60"}`}
+            <div key={item.href} className="relative">
+              <Link
+                ref={isResumes ? resumeLinkRef : undefined}
+                href={item.href}
+                title={!expanded ? item.label : undefined}
+                className={`
+                  flex items-center gap-3 px-3 py-3 rounded-xl text-base transition-all duration-200
+                  ${
+                    isActive
+                      ? "bg-violet-200/70 text-violet-800"
+                      : "text-slate-500 hover:bg-violet-100 hover:text-violet-800"
+                  }
+                `}
               >
-                {ICONS[item.icon]}
-              </span>
-              <span
-                className={`whitespace-nowrap transition-opacity duration-200 font-medium ${expanded ? "opacity-100" : "opacity-0"}`}
-              >
-                {item.label}
-              </span>
-              {isActive && expanded && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-pulse-soft" />
-              )}
-            </Link>
+                <span
+                  className={`shrink-0 ${isActive ? "text-violet-700" : "text-slate-400"}`}
+                >
+                  {ICONS[item.icon]}
+                </span>
+                <span
+                  className={`whitespace-nowrap transition-opacity duration-200 font-bold text-[15px] ${expanded ? "opacity-100" : "opacity-0"}`}
+                >
+                  {item.label}
+                </span>
+                {isActive && expanded && (
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse-soft" />
+                )}
+              </Link>
+            </div>
           );
         })}
       </nav>
@@ -125,14 +159,14 @@ export const Sidebar = () => {
         >
           <Link
             href="/terms"
-            className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+            className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
           >
             이용약관
           </Link>
-          <span className="text-[10px] text-muted-foreground/20">|</span>
+          <span className="text-[10px] text-slate-300">|</span>
           <Link
             href="/privacy"
-            className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+            className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
           >
             개인정보처리방침
           </Link>
@@ -141,10 +175,10 @@ export const Sidebar = () => {
         <button
           onClick={signOut}
           title={!expanded ? "로그아웃" : undefined}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-all"
+          className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold text-slate-400 hover:text-violet-800 hover:bg-violet-100 transition-all"
         >
           <svg
-            className="w-4 h-4 shrink-0"
+            className="w-6 h-6 shrink-0"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -157,12 +191,50 @@ export const Sidebar = () => {
             />
           </svg>
           <span
-            className={`whitespace-nowrap transition-opacity duration-200 ${expanded ? "opacity-100" : "opacity-0"}`}
+            className={`whitespace-nowrap transition-opacity duration-200 text-[15px] ${expanded ? "opacity-100" : "opacity-0"}`}
           >
             로그아웃
           </span>
         </button>
       </div>
     </aside>
+
+      {/* Resume registration tooltip — fixed outside sidebar to avoid overflow-hidden clipping */}
+      {showTooltip && resumeLinkRect && (
+        <div
+          className="fixed z-50 pointer-events-auto"
+          style={{
+            top: resumeLinkRect.top + resumeLinkRect.height / 2,
+            left: resumeLinkRect.right + 12,
+            transform: "translateY(-50%)",
+          }}
+        >
+          {/* Left arrow */}
+          <div
+            className="absolute"
+            style={{
+              left: -7,
+              top: "50%",
+              transform: "translateY(-50%)",
+              width: 0,
+              height: 0,
+              borderTop: "7px solid transparent",
+              borderBottom: "7px solid transparent",
+              borderRight: "8px solid rgb(139 92 246)",
+            }}
+          />
+          {/* Balloon */}
+          <div className="bg-violet-500 text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-violet-300/50 whitespace-nowrap flex items-center gap-2">
+            <span>먼저 이력서를 등록해주세요!</span>
+            <button
+              onClick={() => setTooltipDismissed(true)}
+              className="ml-1 text-white/70 hover:text-white transition-colors leading-none text-base"
+              aria-label="닫기"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
   );
 };
