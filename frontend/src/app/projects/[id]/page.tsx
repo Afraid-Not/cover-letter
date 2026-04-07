@@ -321,7 +321,7 @@ export default function ProjectPage({
         question: effectiveQuestion,
         job_posting: project.job_posting,
         job_analysis: project.job_analysis,
-        company_research: project.company_research,
+        company_research: project.companies,
         resume_id: selectedResumeId ?? undefined,
         resume_text: selectedResumeId ? undefined : resumeText,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -379,7 +379,7 @@ export default function ProjectPage({
         question: effectiveQuestion,
         job_posting: project.job_posting,
         job_analysis: project.job_analysis,
-        company_research: project.company_research,
+        company_research: project.companies,
         resume_id: selectedResumeId ?? undefined,
         resume_text: selectedResumeId ? undefined : resumeText,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -793,42 +793,42 @@ export default function ProjectPage({
               )}
 
               {/* 회사 정보 (research 결과) */}
-              {project.company_research &&
-                (project.company_research.mission ||
-                  project.company_research.vision ||
-                  project.company_research.products_services) && (
+              {project.companies &&
+                (project.companies.mission ||
+                  project.companies.vision ||
+                  project.companies.products_services) && (
                   <div className="rounded-lg border border-border bg-card p-4 space-y-3">
                     <p className="text-xs font-medium text-muted-foreground">
                       회사 정보
                     </p>
                     <div className="space-y-2.5 text-sm">
-                      {project.company_research.mission && (
+                      {project.companies.mission && (
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">
                             미션
                           </p>
                           <p className="text-sm leading-relaxed">
-                            {project.company_research.mission}
+                            {project.companies.mission}
                           </p>
                         </div>
                       )}
-                      {project.company_research.vision && (
+                      {project.companies.vision && (
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">
                             비전
                           </p>
                           <p className="text-sm leading-relaxed">
-                            {project.company_research.vision}
+                            {project.companies.vision}
                           </p>
                         </div>
                       )}
-                      {project.company_research.products_services && (
+                      {project.companies.products_services && (
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">
                             주요 제품/서비스
                           </p>
                           <p className="text-sm leading-relaxed">
-                            {project.company_research.products_services}
+                            {project.companies.products_services}
                           </p>
                         </div>
                       )}

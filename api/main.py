@@ -45,7 +45,7 @@ class GenerateRequest(BaseModel):
     char_limit: int | None = None
     feedback: str | None = None
     previous_answer: str | None = None
-    company_research: dict | None = None
+    company_research: dict | None = None  # companies 테이블 row (frontend에서 project.companies로 전달)
 
 class EvaluateRequest(BaseModel):
     question: str
@@ -417,7 +417,7 @@ async def create_project(req: CreateProjectRequest, request: Request):
 
 @app.post("/api/projects/{project_id}/research")
 async def research_project_company(project_id: int, request: Request):
-    """회사 정보를 웹서치로 조사해 프로젝트에 저장한다."""
+    """회사 정보를 캐시(companies 테이블) 또는 웹서치로 조회해 프로젝트에 연결한다."""
     token = _extract_token(request)
     sb = _get_sb(token)
 
@@ -427,14 +427,18 @@ async def research_project_company(project_id: int, request: Request):
 
     company = project_result.data.get("job_analysis", {}).get("company", "")
 
-    from src.researcher import research_company
-    company_research = research_company(company)
+    from src.researcher import get_or_research_company
+    company_row = get_or_research_company(company)
 
-    try:
-        result = sb.table("generations").update({"company_research": company_research}).eq("id", project_id).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DB update failed: {e}")
-    return result.data[0]
+    if company_row:
+        try:
+            sb.table("generations").update({"company_id": company_row["id"]}).eq("id", project_id).execute()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"DB update failed: {e}")
+
+    # 최신 프로젝트 데이터를 companies 조인해서 반환
+    result = sb.table("generations").select("*, companies(*)").eq("id", project_id).single().execute()
+    return result.data
 
 
 @app.get("/api/projects")
@@ -457,7 +461,7 @@ async def get_project(project_id: int, request: Request):
     token = _extract_token(request)
     sb = _get_sb(token)
     try:
-        result = sb.table("generations").select("*").eq("id", project_id).single().execute()
+        result = sb.table("generations").select("*, companies(*)").eq("id", project_id).single().execute()
         versions = sb.table("generations").select(
             "id, answer, evaluation, created_at, question, mode, char_limit, resume_id, job_analysis"
         ).eq("project_id", project_id).order("created_at").execute()
