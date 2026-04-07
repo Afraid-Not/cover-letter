@@ -482,6 +482,9 @@ export default function DashboardPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [jobPosting, setJobPosting] = useState("");
   const [creating, setCreating] = useState(false);
+  const [creatingStep, setCreatingStep] = useState<
+    "analyzing" | "researching" | null
+  >(null);
   const [jobFile, setJobFile] = useState<File | null>(null);
   const [jobFileLoading, setJobFileLoading] = useState(false);
 
@@ -531,6 +534,7 @@ export default function DashboardPage() {
     const posting = text || jobPosting;
     if (!posting.trim()) return;
     setCreating(true);
+    setCreatingStep("analyzing");
     try {
       const project = await api.createProject(posting);
 
@@ -544,11 +548,15 @@ export default function DashboardPage() {
       setShowCreate(false);
       setJobPosting("");
       setJobFile(null);
-      setConfirmProject(project);
+
+      setCreatingStep("researching");
+      const researched = await api.researchCompany(project.id);
+      setConfirmProject(researched);
     } catch {
       // keep form open on error
     } finally {
       setCreating(false);
+      setCreatingStep(null);
     }
   };
 
@@ -668,7 +676,11 @@ export default function DashboardPage() {
                   onClick={() => handleCreate()}
                   disabled={!jobPosting.trim() || creating}
                 >
-                  {creating ? "분석 중..." : "프로젝트 생성"}
+                  {creatingStep === "analyzing"
+                    ? "채용공고 분석 중..."
+                    : creatingStep === "researching"
+                      ? "회사 정보 조회 중..."
+                      : "프로젝트 생성"}
                 </Button>
               </div>
             </div>

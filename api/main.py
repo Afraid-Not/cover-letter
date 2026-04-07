@@ -390,20 +390,17 @@ async def get_generation(gen_id: int):
 
 @app.post("/api/projects")
 async def create_project(req: CreateProjectRequest, request: Request):
-    """채용공고로 프로젝트 생성 (자동 분석 + 회사 조사 포함)."""
+    """채용공고로 프로젝트 생성 (채용공고 분석만 수행, 회사 조사는 별도 엔드포인트)."""
     token = _extract_token(request)
     user_id = _get_user_id(token) if token else None
 
     from src.analyzer import analyze_job_posting
-    from src.researcher import research_company
     job_analysis = analyze_job_posting(req.job_posting)
-    company_research = research_company(job_analysis.get("company", ""))
 
     sb = _get_sb(token)
     insert_data = {
         "job_posting": req.job_posting,
         "job_analysis": job_analysis,
-        "company_research": company_research,
         "question": "",
         "mode": "general",
         "answer": "",
@@ -415,6 +412,28 @@ async def create_project(req: CreateProjectRequest, request: Request):
         result = sb.table("generations").insert(insert_data).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB insert failed: {e}")
+    return result.data[0]
+
+
+@app.post("/api/projects/{project_id}/research")
+async def research_project_company(project_id: int, request: Request):
+    """회사 정보를 웹서치로 조사해 프로젝트에 저장한다."""
+    token = _extract_token(request)
+    sb = _get_sb(token)
+
+    project_result = sb.table("generations").select("job_analysis").eq("id", project_id).single().execute()
+    if not project_result.data:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+
+    company = project_result.data.get("job_analysis", {}).get("company", "")
+
+    from src.researcher import research_company
+    company_research = research_company(company)
+
+    try:
+        result = sb.table("generations").update({"company_research": company_research}).eq("id", project_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB update failed: {e}")
     return result.data[0]
 
 
