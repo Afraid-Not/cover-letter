@@ -7,7 +7,7 @@
 ## 기술 스택
 
 - **백엔드**: Python 3.11, FastAPI, OpenAI API (GPT-4o), Supabase (pgvector)
-- **프론트엔드**: Next.js 16, shadcn/ui, Tailwind CSS
+- **프론트엔드**: Next.js 16, shadcn/ui, Tailwind CSS, Framer Motion
 - **DB**: Supabase (pgvector, Auth, RLS)
 - **패키지 관리**: conda (env: cover-letter), uv pip install
 
@@ -31,25 +31,28 @@ npm run dev
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI — REST + SSE 스트리밍 + 프로젝트 CRUD
+├── api/main.py              # FastAPI — REST + SSE 스트리밍 + 프로젝트 CRUD + 프로필 API
 ├── src/
 │   ├── embedder.py           # data.txt → Parent-Child 청킹 → 임베딩 → Supabase
 │   ├── parser.py             # 이력서 파싱 (텍스트/PDF) → 구조화 → Supabase 저장
 │   ├── analyzer.py           # 채용공고 텍스트 → 요구 역량/키워드 추출
-│   ├── researcher.py         # 회사명 → OpenAI web search → 미션/비전/제품·서비스 → dict 반환
+│   ├── researcher.py         # 회사명 → OpenAI + Tavily + DART → 미션/비전/제품·서비스/기업규모 → dict 반환
 │   ├── retriever.py          # Supabase 벡터 유사도 검색 (Child 검색 + Parent 컨텍스트)
-│   ├── generator.py          # RAG + 이력서 + 채용공고 + 회사 정보 → 자소서 생성/재생성
+│   ├── generator.py          # RAG + 이력서 + 채용공고 + 회사 정보 → 자소서 생성/재생성 (글자수 ±10% 재시도)
 │   ├── evaluator.py          # 9명 LLM-as-a-Judge 병렬 평가 + SSE 스트리밍
+│   ├── scoring_tables.py     # 서류 통과 확률 후처리 보정 테이블 (대학 티어/전공/나이/학력/기업규모)
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /login, /history, /projects/[id], /resumes
-│       ├── components/       # app-shell, sidebar, auth-guard/provider, evaluation-card/stream
+│       ├── app/              # 페이지: /, /welcome, /login, /history, /projects/[id], /resumes
+│       ├── components/       # app-shell, sidebar, navbar, auth-guard/provider, evaluation-card/stream
+│       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, card…
+│       ├── hooks/            # use-navigation-guard (작업 중 브라우저 이탈 차단)
 │       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD), supabase.ts
 ├── email-templates/          # Supabase Auth 이메일 템플릿 (가입 인증)
 ├── data/data.txt             # 합격 자소서 39건 원본
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
-├── .env                      # SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY
+├── .env                      # SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, TAVILY_API_KEY, DART_API_KEY
 ├── frontend/.env.local       # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
 └── PLAN.md                   # 상세 기획 문서
 ```
@@ -61,6 +64,7 @@ cover-letter/
 - `generations` — 생성 이력 (자소서 + 평가 결과, user_id + RLS)
   - `company_research jsonb` — 회사 조사 결과 (미션/비전/제품·서비스), 신규 컬럼
   - 마이그레이션: `ALTER TABLE generations ADD COLUMN IF NOT EXISTS company_research jsonb;`
+- `profiles` — 사용자 프로필 (user_id + RLS), `/api/profiles` CRUD
 
 ## 주요 설계 결정
 
@@ -70,9 +74,21 @@ cover-letter/
 - 평가 SSE 스트리밍: 각 평가관 결과를 실시간으로 프론트에 전달
 - Supabase Auth + RLS: 사용자별 데이터 격리
 - 회사 조사 (researcher.py): 프로젝트 생성 시 1회 실행 → DB에 저장 → 재생성 시 재사용 (웹서치 중복 방지)
-  - OpenAI Responses API `web_search_preview` 툴 사용 (검색 1회당 ~$0.025~0.03)
+  - OpenAI + Tavily web search + DART API 조합으로 미션/비전/제품서비스/직원수/매출/기업규모 수집
+  - 검색 1회당 비용: OpenAI ~$0.025~0.03, Tavily 별도
   - 결과는 `generations.company_research jsonb`에 저장, Step 1 UI에 표시
   - 생성 프롬프트에 `## 회사 정보` 섹션으로 삽입 (지원동기·비전 작성 품질 향상)
+  - 자동 조사 결과 없을 시 Step 1에서 미션/비전/주요 제품서비스 직접 입력 가능
+
+## 서류 통과 확률 보정 (scoring_tables.py)
+
+AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산출:
+
+- **대학 티어**: SKY(+10) → 서성한/KAIST/POSTECH(+8) → 중경외시/과기원(+5) → 건동홍숙이(+3) 등
+- **전공 관련도**: 직접 관련(+5) / 유사(+2) / 무관(-3)
+- **나이/직급**: 직급-연령 적정성 보정
+- **학력**: 박사(+5) / 석사(+3) / 학사(0) / 전문학사(-2)
+- **기업규모**: 대기업/중견기업/중소기업별 가중치 multiplier 적용
 
 ## 평가관 설계 (evaluator.py)
 
@@ -94,14 +110,18 @@ cover-letter/
   - `previous_answer` + `feedback`을 프롬프트 **최상단**에 배치 (묻히지 않도록)
   - 이전 답변을 포함해서 모델이 구체적으로 무엇을 고쳐야 할지 파악 가능
   - API: `GenerateRequest.previous_answer` 필드, 프론트: `handleRegenerate`에서 현재 `answer` state 전달
+- **글자수 준수**: 지정 글자수의 90~100% 범위 엄수, 미달 시 최대 3회 재시도
 
 ## UI 디자인
 
 - **테마**: Soft/Pastel 다크 — 라벤더/바이올렛 톤 (primary hue 290)
 - **다크모드 색상**: background `oklch(0.135)`, card `oklch(0.26)`, border `oklch(0.32)` — 충분한 명도 차이 확보
-- **사이드바**: hover 시 펼침 (64px → 220px), 고정 position
+- **네비게이션**: 상단 고정 Navbar (로고 + 메뉴 + 로그아웃), 사이드바는 프로젝트 상세 페이지에서만 사용
+- **웰컴 페이지** (`/welcome`): Framer Motion stagger 카드 애니메이션으로 핵심 기능 소개
+- **AI 로더** (`AiLoader`): Portal 기반 전체화면 오버레이, pointer-events 차단으로 중복 요청 방지
 - **프로젝트 카드**: 고정 높이, 좌측 상태 액센트 바, 부드러운 그림자
 - **결과 레이아웃**: 2-Column (자소서+피드백 좌 / 통과확률+평가카드 우)
+- **Step 1 레이아웃**: 채용 공고 요약 + 회사 정보 2열 그리드 (`grid-cols-2 items-stretch`)
 - **콘텐츠 영역**: max-w-7xl, 넓은 레이아웃
 - **상태 컬러**: draft(gray), ready(sky), generated(amber), evaluated(emerald)
 - **서비스명**: AURA
@@ -116,6 +136,7 @@ cover-letter/
 - 회사 정보 자동 조사 결과 없을 시 미션/비전/주요 제품서비스 직접 입력 폼 표시 → `company_research jsonb`에 저장
 - 회사명/직무 미입력 시 다음 단계 진행 불가
 - 프로젝트 데이터는 `generations` 테이블 재사용 (별도 테이블 없음)
+- `use-navigation-guard` 훅으로 생성/평가 중 브라우저 이탈(새로고침·뒤로가기) 차단
 
 ## 코드 컨벤션
 
