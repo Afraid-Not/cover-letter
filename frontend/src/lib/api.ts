@@ -22,7 +22,7 @@ export const api = {
     question: string;
     job_posting: string;
     job_analysis?: Record<string, unknown>;
-    company_research?: CompanyResearch | null;
+    company_research?: CompanyInfo | null;
     resume_id?: number;
     resume_text?: string;
     char_limit?: number;
@@ -253,7 +253,9 @@ export interface ProjectVersion {
   job_analysis: Project["job_analysis"];
 }
 
-export interface CompanyResearch {
+export interface CompanyInfo {
+  id: number;
+  name: string;
   mission: string | null;
   vision: string | null;
   products_services: string | null;
@@ -273,7 +275,8 @@ export interface Project {
     culture_keywords: string[];
     experience_level: string;
   };
-  company_research: CompanyResearch | null;
+  company_id: number | null;
+  companies: CompanyInfo | null; // Supabase FK 조인 결과
   question: string;
   mode: string;
   char_limit: number | null;

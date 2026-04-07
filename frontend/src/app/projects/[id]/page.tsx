@@ -275,7 +275,8 @@ export default function ProjectPage({
         project.job_analysis.position !== "미확인"
       );
     if (stepId === 2) return !!selectedResumeId || !!resumeText;
-    if (stepId === 3) return mode === "general" || question.length > 0;
+    if (stepId === 3)
+      return !!charLimit && (mode === "general" || question.length > 0);
     if (stepId === 4) return genStep === "done";
     return false;
   };
@@ -321,7 +322,7 @@ export default function ProjectPage({
         question: effectiveQuestion,
         job_posting: project.job_posting,
         job_analysis: project.job_analysis,
-        company_research: project.company_research,
+        company_research: project.companies,
         resume_id: selectedResumeId ?? undefined,
         resume_text: selectedResumeId ? undefined : resumeText,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -379,7 +380,7 @@ export default function ProjectPage({
         question: effectiveQuestion,
         job_posting: project.job_posting,
         job_analysis: project.job_analysis,
-        company_research: project.company_research,
+        company_research: project.companies,
         resume_id: selectedResumeId ?? undefined,
         resume_text: selectedResumeId ? undefined : resumeText,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -793,42 +794,42 @@ export default function ProjectPage({
               )}
 
               {/* 회사 정보 (research 결과) */}
-              {project.company_research &&
-                (project.company_research.mission ||
-                  project.company_research.vision ||
-                  project.company_research.products_services) && (
+              {project.companies &&
+                (project.companies.mission ||
+                  project.companies.vision ||
+                  project.companies.products_services) && (
                   <div className="rounded-lg border border-border bg-card p-4 space-y-3">
                     <p className="text-xs font-medium text-muted-foreground">
                       회사 정보
                     </p>
                     <div className="space-y-2.5 text-sm">
-                      {project.company_research.mission && (
+                      {project.companies.mission && (
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">
                             미션
                           </p>
                           <p className="text-sm leading-relaxed">
-                            {project.company_research.mission}
+                            {project.companies.mission}
                           </p>
                         </div>
                       )}
-                      {project.company_research.vision && (
+                      {project.companies.vision && (
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">
                             비전
                           </p>
                           <p className="text-sm leading-relaxed">
-                            {project.company_research.vision}
+                            {project.companies.vision}
                           </p>
                         </div>
                       )}
-                      {project.company_research.products_services && (
+                      {project.companies.products_services && (
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">
                             주요 제품/서비스
                           </p>
                           <p className="text-sm leading-relaxed">
-                            {project.company_research.products_services}
+                            {project.companies.products_services}
                           </p>
                         </div>
                       )}
@@ -1123,19 +1124,27 @@ export default function ProjectPage({
 
               <div className="space-y-2">
                 <p className="text-sm font-medium text-muted-foreground">
-                  글자수 제한
+                  글자수 제한 <span className="text-destructive">*</span>
                 </p>
                 <input
                   type="number"
-                  placeholder="제한 없음"
+                  placeholder="예: 800"
                   value={charLimit}
                   onChange={(e) => setCharLimit(e.target.value)}
-                  className="w-full h-10 rounded-lg border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className={`w-full h-10 rounded-lg border bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring ${!charLimit ? "border-destructive/50" : "border-input"}`}
                   disabled={isLoading}
                 />
-                <p className="text-xs text-muted-foreground">
-                  비워두면 제한 없이 생성합니다.
-                </p>
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 space-y-1">
+                  <p className="text-xs font-medium text-amber-400">
+                    글자수 안내
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5">
+                    <li>· 일반적으로 800자, 최대 1000자 이내가 많습니다.</li>
+                    <li>
+                      · 회사마다 제한이 다를 수 있으니 채용공고를 꼭 확인하세요.
+                    </li>
+                  </ul>
+                </div>
               </div>
 
               <Separator />
@@ -1179,7 +1188,11 @@ export default function ProjectPage({
                 </Button>
                 <Button
                   onClick={handleGenerate}
-                  disabled={isLoading || (mode === "question" && !question)}
+                  disabled={
+                    isLoading ||
+                    !charLimit ||
+                    (mode === "question" && !question)
+                  }
                 >
                   자소서 생성하기
                 </Button>
