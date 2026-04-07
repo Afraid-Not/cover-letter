@@ -365,8 +365,11 @@ export default function ProjectPage({
     }
   };
 
+  const MAX_REGENERATIONS = 5;
+
   const handleRegenerate = async () => {
     if (!project || !evalResult) return;
+    if (versions.length >= MAX_REGENERATIONS) return;
     setGenStep("generating");
     setError("");
 
@@ -1291,8 +1294,17 @@ export default function ProjectPage({
                               variant="outline"
                               size="sm"
                               onClick={handleRegenerate}
+                              disabled={versions.length >= MAX_REGENERATIONS}
+                              title={
+                                versions.length >= MAX_REGENERATIONS
+                                  ? "재생성은 최대 5회까지 가능합니다"
+                                  : undefined
+                              }
                             >
                               피드백 반영 재생성
+                              {versions.length > 0
+                                ? ` (${versions.length}/5)`
+                                : ""}
                             </Button>
                           )}
                         </div>
