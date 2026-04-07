@@ -124,6 +124,14 @@ export const api = {
     }).then((r) => r.json());
   },
 
+  researchCompany: async (projectId: number): Promise<Project> => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/projects/${projectId}/research`, {
+      method: "POST",
+      headers,
+    }).then((r) => r.json());
+  },
+
   listProjects: async (): Promise<Project[]> => {
     const headers = await getAuthHeaders();
     return fetch(`${API_BASE}/api/projects`, { headers }).then((r) => r.json());
