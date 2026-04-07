@@ -2,24 +2,43 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import Link from "next/link";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { SignInPage } from "@/components/ui/sign-in";
 import { supabase } from "@/lib/supabase";
+
+const testimonials = [
+  {
+    avatarSrc: "https://randomuser.me/api/portraits/women/44.jpg",
+    name: "김지수",
+    handle: "@jisoo_k",
+    text: "9명의 AI 평가관 덕분에 자소서 완성도가 확 올라갔어요. 대기업 최종 합격!",
+  },
+  {
+    avatarSrc: "https://randomuser.me/api/portraits/men/32.jpg",
+    name: "박민준",
+    handle: "@minjun_dev",
+    text: "RAG 기반 합격 자소서 분석이 정말 정확해요. 실제 합격자들의 패턴을 파악할 수 있었습니다.",
+  },
+  {
+    avatarSrc: "https://randomuser.me/api/portraits/women/68.jpg",
+    name: "이서연",
+    handle: "@seoyeon_career",
+    text: "피드백 재생성 기능으로 계속 다듬다 보니 훨씬 나은 자소서가 완성됐어요.",
+  },
+];
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
+      const formData = new FormData(e.currentTarget);
+      const email = formData.get("email") as string;
+      const password = formData.get("password") as string;
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -30,7 +49,7 @@ export default function LoginPage() {
         }
         throw error;
       }
-      router.push("/");
+      router.push("/welcome");
     } catch (e) {
       setError(e instanceof Error ? e.message : "오류가 발생했습니다");
     } finally {
@@ -39,73 +58,17 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-background noise-bg relative overflow-hidden">
-      <div className="w-full md:w-[480px] flex items-center justify-center p-8 relative shrink-0">
-        <div className="pointer-events-none absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-primary/[0.06] rounded-full blur-[120px]" />
-
-        <Card className="relative w-full max-w-sm border-border/50 animate-fade-in-up">
-          <CardHeader className="text-center pb-2">
-            <div className="flex justify-center mb-3">
-              <Image src="/logo.png" alt="AURA" width={48} height={35} />
-            </div>
-            <h1 className="text-2xl font-semibold tracking-widest font-[family-name:var(--font-playfair)]">
-              AURA
-            </h1>
-            <p className="text-xs text-muted-foreground mt-1">로그인하세요</p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <input
-                type="email"
-                placeholder="이메일"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                required
-              />
-              <input
-                type="password"
-                placeholder="비밀번호"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                required
-                minLength={6}
-              />
-
-              {error && <p className="text-xs text-destructive">{error}</p>}
-
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "처리 중..." : "로그인"}
-              </Button>
-            </form>
-
-            <p className="text-center text-xs text-muted-foreground">
-              계정이 없나요?{" "}
-              <Link href="/signup" className="underline text-foreground">
-                회원가입
-              </Link>
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="hidden md:block flex-1 relative">
-        <img
-          src="/login-bg.png"
-          alt="Interview panel"
-          className="absolute inset-0 w-full h-full object-cover brightness-125"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-background to-transparent w-1/3" />
-        <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-background/70 to-transparent" />
-        <div className="absolute bottom-12 left-12 right-12 animate-fade-in">
-          <p className="text-2xl font-semibold text-foreground leading-snug">
-            9명의 AI 평가관이
-            <br />
-            당신의 자소서를 심사합니다
-          </p>
-        </div>
-      </div>
-    </div>
+    <SignInPage
+      title={
+        <span className="font-heading text-primary tracking-widest">AURA</span>
+      }
+      description="9명의 AI 평가관이 당신의 자소서를 심사합니다"
+      heroImageSrc="https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=2160&q=80"
+      testimonials={testimonials}
+      onSignIn={handleSignIn}
+      onCreateAccount={() => router.push("/signup")}
+      loading={loading}
+      error={error}
+    />
   );
 }

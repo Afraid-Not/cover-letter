@@ -10,6 +10,7 @@ dependencies = [
     "rich>=13.0",
     "python-dotenv>=1.0",
     "pymupdf>=1.24",
+    "tavily-python>=0.5",
 ]
 
 [project.scripts]

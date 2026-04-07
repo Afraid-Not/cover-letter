@@ -39,12 +39,21 @@ export const api = {
     question: string;
     answer: string;
     job_analysis: Record<string, unknown>;
+    resume_structured?: Record<string, unknown> | null;
+    company_size?: string | null;
   }) =>
     fetch(`${API_BASE}/api/evaluate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then((r) => r.json()),
+
+  getResume: async (id: number) => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/resumes/${id}`, { headers }).then((r) =>
+      r.json(),
+    );
+  },
 
   listResumes: async () => {
     const headers = await getAuthHeaders();
@@ -195,11 +204,31 @@ export const api = {
     return r.json();
   },
 
+  saveProfile: async (data: {
+    name: string;
+    phone?: string;
+    job_title?: string;
+    job_seeker_status?: string;
+    years_of_experience?: number;
+    education_level?: string;
+    education_major?: string;
+    agreed_to_terms: boolean;
+  }) => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/profiles`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(data),
+    }).then((r) => r.json());
+  },
+
   evaluateStream: async (
     data: {
       question: string;
       answer: string;
       job_analysis: Record<string, unknown>;
+      resume_structured?: Record<string, unknown> | null;
+      company_size?: string | null;
     },
     onEvaluator: (event: EvaluatorEvent) => void,
   ): Promise<EvalSummary> => {
@@ -259,6 +288,9 @@ export interface CompanyInfo {
   mission: string | null;
   vision: string | null;
   products_services: string | null;
+  employee_count: number | null;
+  revenue_billion: number | null;
+  company_size: string | null;
 }
 
 export interface Project {

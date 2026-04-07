@@ -1,5 +1,6 @@
 """FastAPI 백엔드 — 기존 src/ 모듈을 API로 래핑"""
 
+import logging
 import sys
 from pathlib import Path
 
@@ -7,6 +8,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import tempfile
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -51,6 +58,8 @@ class EvaluateRequest(BaseModel):
     question: str
     answer: str
     job_analysis: dict
+    resume_structured: dict | None = None  # 후처리 보정용
+    company_size: str | None = None        # companies.company_size
 
 class SaveGenerationRequest(BaseModel):
     job_posting: str
@@ -88,6 +97,16 @@ class CreateVersionRequest(BaseModel):
 class ResumeRequest(BaseModel):
     source: str
     name: str | None = None
+
+class ProfileRequest(BaseModel):
+    name: str
+    phone: str | None = None
+    job_title: str | None = None
+    job_seeker_status: str | None = None  # 신입 or 경력
+    years_of_experience: int | None = None
+    education_level: str | None = None
+    education_major: str | None = None
+    agreed_to_terms: bool = False
 
 
 # ── Supabase 헬퍼 ──
@@ -178,9 +197,22 @@ async def generate(req: GenerateRequest):
 @app.post("/api/evaluate")
 async def evaluate(req: EvaluateRequest):
     from src.evaluator import evaluate_all, aggregate_feedback
+    from src.scoring_tables import compute_score_adjustment
+
     result = await evaluate_all(req.question, req.answer, req.job_analysis)
     feedback = aggregate_feedback(result)
-    return {**result, "aggregated_feedback": feedback}
+
+    score_adj = None
+    if req.resume_structured:
+        score_adj = compute_score_adjustment(
+            req.resume_structured, req.company_size, req.job_analysis
+        )
+        adjusted = round(
+            max(0.0, min(100.0, result["overall_pass_probability"] + score_adj["total"])), 1
+        )
+        result = {**result, "overall_pass_probability": adjusted}
+
+    return {**result, "aggregated_feedback": feedback, "score_adjustment": score_adj}
 
 
 @app.post("/api/evaluate/stream")
@@ -192,6 +224,8 @@ async def evaluate_stream_endpoint(req: EvaluateRequest):
     from src.evaluator import evaluate_stream as _eval_stream, aggregate_feedback, _summarize_results
 
     async def event_generator():
+        from src.scoring_tables import compute_score_adjustment
+
         results_collected = []
         try:
             async for item in _eval_stream(req.question, req.answer, req.job_analysis):
@@ -210,10 +244,22 @@ async def evaluate_stream_endpoint(req: EvaluateRequest):
             # 최종 종합 결과
             summary = _summarize_results(results_collected)
             feedback = aggregate_feedback(summary)
+
+            score_adj = None
+            if req.resume_structured:
+                score_adj = compute_score_adjustment(
+                    req.resume_structured, req.company_size, req.job_analysis
+                )
+                adjusted = round(
+                    max(0.0, min(100.0, summary["overall_pass_probability"] + score_adj["total"])), 1
+                )
+                summary = {**summary, "overall_pass_probability": adjusted}
+
             final = json_lib.dumps({
                 "type": "summary",
                 **summary,
                 "aggregated_feedback": feedback,
+                "score_adjustment": score_adj,
             }, ensure_ascii=False)
             yield f"data: {final}\n\n"
         except Exception as e:
@@ -424,7 +470,7 @@ async def research_project_company(project_id: int, request: Request):
     token = _extract_token(request)
     sb = _get_sb(token)
 
-    project_result = sb.table("generations").select("job_analysis").eq("id", project_id).single().execute()
+    project_result = sb.table("generations").select("job_analysis, company_id").eq("id", project_id).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
 
@@ -432,6 +478,7 @@ async def research_project_company(project_id: int, request: Request):
 
     from src.researcher import get_or_research_company
     company_row = get_or_research_company(company)
+    logging.getLogger(__name__).info("[research] company='%s' row=%s", company, company_row)
 
     if company_row:
         try:
@@ -478,16 +525,36 @@ async def update_project(project_id: int, req: UpdateProjectRequest, request: Re
     """프로젝트 필드 업데이트."""
     token = _extract_token(request)
     sb = _get_sb(token)
-    update_data = {k: v for k, v in req.model_dump().items() if v is not None}
-    if not update_data:
-        raise HTTPException(400, "업데이트할 필드가 없습니다")
-    try:
-        result = sb.table("generations").update(update_data).eq("id", project_id).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DB update failed: {e}")
-    if not result.data:
-        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없거나 권한이 없습니다")
-    return result.data[0]
+    data = req.model_dump()
+    company_research = data.pop("company_research", None)
+
+    # company_research가 있으면 companies 테이블 업데이트
+    if company_research:
+        proj = sb.table("generations").select("company_id").eq("id", project_id).single().execute()
+        company_id = proj.data.get("company_id") if proj.data else None
+        if company_id:
+            _supabase_admin = __import__("src.researcher", fromlist=["_supabase"])._supabase
+            _supabase_admin.table("companies").update(company_research).eq("id", company_id).execute()
+        else:
+            # company_id 없으면 research 엔드포인트처럼 새로 생성
+            from src.researcher import _save_company, _normalize, _get_embedding
+            company_name = (sb.table("generations").select("job_analysis").eq("id", project_id).single().execute().data or {}).get("job_analysis", {}).get("company", "")
+            if company_name:
+                row = _save_company(company_name, company_research)
+                sb.table("generations").update({"company_id": row["id"]}).eq("id", project_id).execute()
+
+    update_data = {k: v for k, v in data.items() if v is not None}
+    if update_data:
+        try:
+            result = sb.table("generations").update(update_data).eq("id", project_id).execute()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"DB update failed: {e}")
+        if not result.data:
+            raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없거나 권한이 없습니다")
+
+    # 최신 상태 반환 (companies 조인 포함)
+    result = sb.table("generations").select("*, companies(*)").eq("id", project_id).single().execute()
+    return result.data
 
 
 @app.delete("/api/projects/{project_id}")
@@ -543,3 +610,63 @@ async def create_project_version(project_id: int, req: CreateVersionRequest, req
         raise HTTPException(status_code=500, detail=f"버전 저장 실패: {e}")
 
     return version_result.data[0]
+
+
+# ── 프로필 ──
+
+@app.post("/api/profiles")
+async def upsert_profile(req: ProfileRequest, request: Request):
+    """사용자 프로필 생성/업데이트."""
+    import os
+    from openai import OpenAI
+
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    profile_data: dict = {
+        "user_id": user_id,
+        "name": req.name,
+        "phone": req.phone,
+        "job_title": req.job_title,
+        "job_seeker_status": req.job_seeker_status,
+        "years_of_experience": req.years_of_experience,
+        "education_level": req.education_level,
+        "education_major": req.education_major,
+        "agreed_to_terms": req.agreed_to_terms,
+    }
+
+    if req.job_title:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.embeddings.create(model="text-embedding-3-small", input=req.job_title)
+        profile_data["job_embedding"] = response.data[0].embedding
+
+    sb = _get_sb(token)
+    try:
+        result = sb.table("profiles").upsert(profile_data, on_conflict="user_id").execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"프로필 저장 실패: {e}")
+
+    return result.data[0]
+
+
+@app.get("/api/profiles/me")
+async def get_my_profile(request: Request):
+    """현재 사용자의 프로필 조회."""
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    sb = _get_sb(token)
+    try:
+        result = sb.table("profiles").select("*").eq("user_id", user_id).single().execute()
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"프로필을 찾을 수 없습니다: {e}")
+
+    return result.data

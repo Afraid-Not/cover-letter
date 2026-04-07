@@ -2,14 +2,12 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
-  --font-heading: var(--font-sans);
+  --font-heading: "Instrument Serif", Georgia, serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,72 +47,39 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.135 0.008 275);
-  --foreground: oklch(0.93 0.005 275);
-  --card: oklch(0.26 0.016 275);
-  --card-foreground: oklch(0.93 0.005 275);
-  --popover: oklch(0.22 0.013 275);
-  --popover-foreground: oklch(0.93 0.005 275);
-  --primary: oklch(0.72 0.11 290);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.24 0.013 275);
-  --secondary-foreground: oklch(0.85 0.02 290);
-  --muted: oklch(0.24 0.013 275);
-  --muted-foreground: oklch(0.58 0.012 275);
-  --accent: oklch(0.23 0.014 275);
-  --accent-foreground: oklch(0.72 0.11 290);
-  --destructive: oklch(0.65 0.16 15);
-  --border: oklch(0.32 0.015 275);
-  --input: oklch(0.22 0.012 275);
-  --ring: oklch(0.72 0.11 290);
-  --chart-1: oklch(0.72 0.11 290);
-  --chart-2: oklch(0.68 0.12 175);
-  --chart-3: oklch(0.65 0.14 340);
-  --chart-4: oklch(0.7 0.1 45);
-  --chart-5: oklch(0.6 0.12 220);
-  --sidebar: oklch(0.23 0.014 275);
-  --sidebar-foreground: oklch(0.88 0.005 275);
-  --sidebar-primary: oklch(0.72 0.11 290);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.28 0.016 275);
-  --sidebar-accent-foreground: oklch(0.72 0.11 290);
-  --sidebar-border: oklch(0.32 0.016 275);
-  --sidebar-ring: oklch(0.72 0.11 290);
+  --card: #faf9f5;
+  --ring: #c96442;
+  --input: #b4b2a7;
+  --muted: #ede9de;
+  --accent: #e9e6dc;
+  --border: #dad9d4;
+  --radius: 0.5rem;
+  --chart-1: #b05730;
+  --chart-2: #9c87f5;
+  --chart-3: #ded8c4;
+  --chart-4: #dbd3f0;
+  --chart-5: #b4552d;
+  --popover: #ffffff;
+  --primary: #c96442;
+  --sidebar: #f5f4ee;
+  --secondary: #e9e6dc;
+  --background: #faf9f5;
+  --foreground: #3d3929;
+  --destructive: #141413;
+  --sidebar-ring: #b5b5b5;
+  --sidebar-accent: #e9e6dc;
+  --sidebar-border: #ebebeb;
+  --card-foreground: #141413;
+  --sidebar-primary: #c96442;
+  --muted-foreground: #83827d;
+  --accent-foreground: #28261b;
+  --popover-foreground: #28261b;
+  --primary-foreground: #ffffff;
+  --sidebar-foreground: #3d3d3a;
+  --secondary-foreground: #535146;
+  --destructive-foreground: #ffffff;
+  --sidebar-accent-foreground: #343434;
+  --sidebar-primary-foreground: #fbfbfb;
 }
 
 @layer base {
@@ -126,6 +91,7 @@
   }
   html {
     @apply font-sans;
+    scrollbar-gutter: stable;
   }
 }
 
@@ -176,7 +142,7 @@
   background: linear-gradient(
     90deg,
     transparent 25%,
-    oklch(0.72 0.11 290 / 0.08) 50%,
+    rgb(201 100 66 / 0.08) 50%,
     transparent 75%
   );
   background-size: 200% 100%;
@@ -201,6 +167,119 @@
 }
 .delay-5 {
   animation-delay: 0.25s;
+}
+
+/* Navbar glass button */
+.nav-glass-button {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  transition: background 0.2s;
+}
+.nav-glass-button:hover {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Navbar divider */
+.nav-divider {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border),
+    transparent
+  );
+}
+
+/* Sign-in page animations */
+@keyframes signin-fade-slide {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateY(0px);
+  }
+}
+
+@keyframes signin-slide-right {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateX(0px);
+  }
+}
+
+@keyframes signin-testimonial-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translateY(0px) scale(1);
+  }
+}
+
+.signin-element {
+  opacity: 0;
+  animation: signin-fade-slide 0.5s ease-out forwards;
+}
+.signin-slide-right {
+  opacity: 0;
+  animation: signin-slide-right 0.6s ease-out forwards;
+}
+.signin-testimonial {
+  opacity: 0;
+  animation: signin-testimonial-in 0.5s ease-out forwards;
+}
+.signin-delay-100 {
+  animation-delay: 0.1s;
+}
+.signin-delay-200 {
+  animation-delay: 0.2s;
+}
+.signin-delay-300 {
+  animation-delay: 0.3s;
+}
+.signin-delay-400 {
+  animation-delay: 0.4s;
+}
+.signin-delay-500 {
+  animation-delay: 0.5s;
+}
+.signin-delay-600 {
+  animation-delay: 0.6s;
+}
+.signin-delay-700 {
+  animation-delay: 0.7s;
+}
+.signin-delay-800 {
+  animation-delay: 0.8s;
+}
+.signin-delay-900 {
+  animation-delay: 0.9s;
+}
+.signin-delay-1000 {
+  animation-delay: 1s;
+}
+.signin-delay-1200 {
+  animation-delay: 1.2s;
+}
+.signin-delay-1400 {
+  animation-delay: 1.4s;
 }
 
 /* Noise overlay for depth */

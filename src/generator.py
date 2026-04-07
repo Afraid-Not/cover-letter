@@ -28,7 +28,7 @@ GENERATE_SYSTEM_PROMPT = """당신은 자소서 작성 전문가입니다.
 - "저는 ~라고 생각합니다"로 시작하지 마세요.
 - 불필요한 수식어, 과장된 표현을 쓰지 마세요.
 - 각 문단의 첫 문장에 핵심을 담으세요.
-- 글자수 제한이 있으면 반드시 지키세요."""
+- 글자수 제한이 있으면 반드시 지키세요. 지정된 글자수의 90%~100% 범위를 엄수하세요 (예: 1000자 → 900~1000자)."""
 
 REGENERATE_SYSTEM_PROMPT = """당신은 자소서 개선 전문가입니다.
 이전에 작성된 자소서에 대해 실제 채용 담당자들의 평가 피드백이 있습니다.
@@ -40,7 +40,7 @@ REGENERATE_SYSTEM_PROMPT = """당신은 자소서 개선 전문가입니다.
 3. **구체성 강화** — 피드백에서 "구체적이지 않다"는 지적이 있으면 수치·결과·프로젝트명을 추가하세요.
 4. **사람이 쓴 것처럼** — AI 특유의 나열식 톤을 절대 쓰지 마세요.
 5. **내 경험 기반** — 이력서에 있는 실제 경험만 사용하세요. 허구를 만들지 마세요.
-6. **글자수 제한** — 글자수 제한이 있으면 반드시 지키세요.
+6. **글자수 제한** — 글자수 제한이 있으면 반드시 지키세요. 지정된 글자수의 90%~100% 범위를 엄수하세요 (예: 1000자 → 900~1000자).
 
 ## 절대 금지
 - [이력서 원문]에 없는 학위명·전공·기술·경험·수치를 새로 만들지 마세요. 구체성 강화를 위해 없는 내용을 지어내는 것은 금지입니다.
@@ -59,7 +59,7 @@ def generate_answer(
     company_research: dict | None = None,
     resume_raw_text: str | None = None,
 ) -> str:
-    """자소서 답변을 생성한다."""
+    """자소서 답변을 생성한다. 글자수 제한이 있으면 ±10% 범위를 만족할 때까지 최대 3회 재시도한다."""
     is_regen = bool(feedback and previous_answer)
     system_prompt = REGENERATE_SYSTEM_PROMPT if is_regen else GENERATE_SYSTEM_PROMPT
 
@@ -68,16 +68,45 @@ def generate_answer(
         char_limit, feedback, previous_answer, company_research, resume_raw_text,
     )
 
-    response = openai_client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
+    max_attempts = 3 if char_limit else 1
+    answer = ""
+
+    for attempt in range(max_attempts):
+        messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.3,
-    )
+        ]
 
-    return response.choices[0].message.content.strip()
+        # 재시도 시 직전 결과와 현재 글자수를 피드백으로 추가
+        if attempt > 0 and answer and char_limit:
+            actual = len(answer)
+            min_chars = int(char_limit * 0.9)
+            messages.append({"role": "assistant", "content": answer})
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"방금 작성한 답변은 {actual}자입니다. "
+                    f"목표 글자수 {char_limit}자의 90%~100% 범위({min_chars}~{char_limit}자)를 벗어났습니다. "
+                    f"내용의 핵심은 유지하면서 글자수를 {min_chars}~{char_limit}자 사이로 맞춰 다시 작성하세요."
+                ),
+            })
+
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0.3,
+        )
+        answer = response.choices[0].message.content.strip()
+
+        if not char_limit:
+            break
+
+        actual = len(answer)
+        min_chars = int(char_limit * 0.9)
+        if min_chars <= actual <= char_limit:
+            break
+
+    return answer
 
 
 def _build_user_prompt(
@@ -107,7 +136,8 @@ def _build_user_prompt(
     # 자소서 질문
     parts.append(f"\n## 자소서 질문\n{question}")
     if char_limit:
-        parts.append(f"(글자수 제한: {char_limit}자)")
+        min_chars = int(char_limit * 0.9)
+        parts.append(f"(글자수 제한: {char_limit}자 — 반드시 {min_chars}자 이상 {char_limit}자 이하로 작성하세요)")
 
     # 채용공고 분석
     parts.append(f"\n## 채용공고 분석")

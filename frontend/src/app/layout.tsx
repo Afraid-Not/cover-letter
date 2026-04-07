@@ -1,28 +1,32 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
+import { DM_Sans, Instrument_Serif, Nanum_Myeongjo } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
 import { Analytics } from "@vercel/analytics/next";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const dmSans = DM_Sans({
+  variable: "--font-sans",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-heading",
   subsets: ["latin"],
+  weight: ["400"],
+  display: "swap",
 });
 
-const playfair = Playfair_Display({
-  variable: "--font-playfair",
+const nanumMyeongjo = Nanum_Myeongjo({
+  variable: "--font-loader",
   subsets: ["latin"],
-  weight: ["600"],
+  weight: ["400", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "AURA — Cover Letter Generator",
+  title: "AURA",
   description: "합격 자소서 기반 RAG 자소서 생성 + LLM-as-a-Judge 평가",
 };
 
@@ -34,7 +38,7 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} dark h-full antialiased`}
+      className={`${dmSans.variable} ${instrumentSerif.variable} ${nanumMyeongjo.variable} h-full antialiased`}
     >
       <body className="min-h-full flex">
         <AuthProvider>
