@@ -36,8 +36,9 @@ cover-letter/
 │   ├── embedder.py           # data.txt → Parent-Child 청킹 → 임베딩 → Supabase
 │   ├── parser.py             # 이력서 파싱 (텍스트/PDF) → 구조화 → Supabase 저장
 │   ├── analyzer.py           # 채용공고 텍스트 → 요구 역량/키워드 추출
+│   ├── researcher.py         # 회사명 → OpenAI web search → 미션/비전/제품·서비스 → dict 반환
 │   ├── retriever.py          # Supabase 벡터 유사도 검색 (Child 검색 + Parent 컨텍스트)
-│   ├── generator.py          # RAG + 이력서 + 채용공고 → 자소서 생성/재생성
+│   ├── generator.py          # RAG + 이력서 + 채용공고 + 회사 정보 → 자소서 생성/재생성
 │   ├── evaluator.py          # 9명 LLM-as-a-Judge 병렬 평가 + SSE 스트리밍
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
@@ -58,6 +59,8 @@ cover-letter/
 - `documents` — 합격 자소서 청크 (Parent-Child, parent_id로 연결)
 - `resumes` — 사용자 이력서 (user_id + RLS)
 - `generations` — 생성 이력 (자소서 + 평가 결과, user_id + RLS)
+  - `company_research jsonb` — 회사 조사 결과 (미션/비전/제품·서비스), 신규 컬럼
+  - 마이그레이션: `ALTER TABLE generations ADD COLUMN IF NOT EXISTS company_research jsonb;`
 
 ## 주요 설계 결정
 
@@ -66,6 +69,10 @@ cover-letter/
 - 9명 평가관: 3그룹(HR/현업팀장/채용리더) × 3명, 채용공고 기반 동적 백그라운드
 - 평가 SSE 스트리밍: 각 평가관 결과를 실시간으로 프론트에 전달
 - Supabase Auth + RLS: 사용자별 데이터 격리
+- 회사 조사 (researcher.py): 프로젝트 생성 시 1회 실행 → DB에 저장 → 재생성 시 재사용 (웹서치 중복 방지)
+  - OpenAI Responses API `web_search_preview` 툴 사용 (검색 1회당 ~$0.025~0.03)
+  - 결과는 `generations.company_research jsonb`에 저장, Step 1 UI에 표시
+  - 생성 프롬프트에 `## 회사 정보` 섹션으로 삽입 (지원동기·비전 작성 품질 향상)
 
 ## 평가관 설계 (evaluator.py)
 

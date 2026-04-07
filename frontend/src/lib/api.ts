@@ -22,6 +22,7 @@ export const api = {
     question: string;
     job_posting: string;
     job_analysis?: Record<string, unknown>;
+    company_research?: CompanyResearch | null;
     resume_id?: number;
     resume_text?: string;
     char_limit?: number;
@@ -244,6 +245,12 @@ export interface ProjectVersion {
   job_analysis: Project["job_analysis"];
 }
 
+export interface CompanyResearch {
+  mission: string | null;
+  vision: string | null;
+  products_services: string | null;
+}
+
 export interface Project {
   id: number;
   project_id: number | null;
@@ -258,6 +265,7 @@ export interface Project {
     culture_keywords: string[];
     experience_level: string;
   };
+  company_research: CompanyResearch | null;
   question: string;
   mode: string;
   char_limit: number | null;

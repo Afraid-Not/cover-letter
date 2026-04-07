@@ -54,6 +54,7 @@ def generate_answer(
     char_limit: int | None = None,
     feedback: str | None = None,
     previous_answer: str | None = None,
+    company_research: dict | None = None,
 ) -> str:
     """자소서 답변을 생성한다."""
     is_regen = bool(feedback and previous_answer)
@@ -61,7 +62,7 @@ def generate_answer(
 
     user_prompt = _build_user_prompt(
         question, job_analysis, resume_structured, rag_results,
-        char_limit, feedback, previous_answer,
+        char_limit, feedback, previous_answer, company_research,
     )
 
     response = openai_client.chat.completions.create(
@@ -84,6 +85,7 @@ def _build_user_prompt(
     char_limit: int | None,
     feedback: str | None,
     previous_answer: str | None,
+    company_research: dict | None = None,
 ) -> str:
     """생성 프롬프트를 구성한다. 재생성 시 피드백을 상단에 배치한다."""
     parts = []
@@ -113,6 +115,16 @@ def _build_user_prompt(
         parts.append(f"- 우대 역량: {', '.join(job_analysis['preferred_skills'])}")
     if job_analysis.get("keywords"):
         parts.append(f"- 핵심 키워드: {', '.join(job_analysis['keywords'])}")
+
+    # 회사 조사 결과
+    if company_research and any(company_research.get(k) for k in ("mission", "vision", "products_services")):
+        parts.append(f"\n## 회사 정보 (지원동기·비전 작성에 활용)")
+        if company_research.get("mission"):
+            parts.append(f"- 미션: {company_research['mission']}")
+        if company_research.get("vision"):
+            parts.append(f"- 비전: {company_research['vision']}")
+        if company_research.get("products_services"):
+            parts.append(f"- 주요 제품/서비스: {company_research['products_services']}")
 
     # 이력서 정보
     parts.append(f"\n## 내 이력서")

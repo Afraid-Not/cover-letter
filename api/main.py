@@ -45,6 +45,7 @@ class GenerateRequest(BaseModel):
     char_limit: int | None = None
     feedback: str | None = None
     previous_answer: str | None = None
+    company_research: dict | None = None
 
 class EvaluateRequest(BaseModel):
     question: str
@@ -73,6 +74,7 @@ class UpdateProjectRequest(BaseModel):
     evaluation: dict | None = None
     job_posting: str | None = None
     job_analysis: dict | None = None
+    company_research: dict | None = None
 
 class CreateVersionRequest(BaseModel):
     answer: str
@@ -159,6 +161,7 @@ async def generate(req: GenerateRequest):
         char_limit=req.char_limit,
         feedback=req.feedback,
         previous_answer=req.previous_answer,
+        company_research=req.company_research,
     )
 
     return {
@@ -387,17 +390,20 @@ async def get_generation(gen_id: int):
 
 @app.post("/api/projects")
 async def create_project(req: CreateProjectRequest, request: Request):
-    """채용공고로 프로젝트 생성 (자동 분석 포함)."""
+    """채용공고로 프로젝트 생성 (자동 분석 + 회사 조사 포함)."""
     token = _extract_token(request)
     user_id = _get_user_id(token) if token else None
 
     from src.analyzer import analyze_job_posting
+    from src.researcher import research_company
     job_analysis = analyze_job_posting(req.job_posting)
+    company_research = research_company(job_analysis.get("company", ""))
 
     sb = _get_sb(token)
     insert_data = {
         "job_posting": req.job_posting,
         "job_analysis": job_analysis,
+        "company_research": company_research,
         "question": "",
         "mode": "general",
         "answer": "",
