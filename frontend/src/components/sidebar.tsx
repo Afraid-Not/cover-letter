@@ -81,49 +81,50 @@ export const Sidebar = () => {
   }, [showTooltip, expanded]);
 
   return (
-    <aside
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
-      className={`
+    <>
+      <aside
+        onMouseEnter={() => setExpanded(true)}
+        onMouseLeave={() => setExpanded(false)}
+        className={`
         fixed top-0 left-0 h-screen z-40 flex flex-col
         bg-violet-50 border-r border-violet-200
         transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden
         ${expanded ? "w-[240px] shadow-2xl shadow-violet-200/60" : "w-[68px]"}
       `}
-    >
-      <div className="absolute inset-0 bg-gradient-to-b from-violet-100/40 to-transparent pointer-events-none" />
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-violet-100/40 to-transparent pointer-events-none" />
 
-      {/* Logo */}
-      <div className="relative px-4 py-5 flex items-center gap-3">
-        <Image
-          src="/logo.png"
-          alt="AURA"
-          width={40}
-          height={29}
-          className="shrink-0"
-        />
-        <h1
-          className={`text-xl font-semibold tracking-widest whitespace-nowrap transition-opacity duration-200 font-[family-name:var(--font-playfair)] text-violet-800 ${expanded ? "opacity-100" : "opacity-0"}`}
-        >
-          AURA
-        </h1>
-      </div>
+        {/* Logo */}
+        <div className="relative px-4 py-5 flex items-center gap-3">
+          <Image
+            src="/logo.png"
+            alt="AURA"
+            width={40}
+            height={29}
+            className="shrink-0"
+          />
+          <h1
+            className={`text-xl font-semibold tracking-widest whitespace-nowrap transition-opacity duration-200 font-[family-name:var(--font-playfair)] text-violet-800 ${expanded ? "opacity-100" : "opacity-0"}`}
+          >
+            AURA
+          </h1>
+        </div>
 
-      {/* Nav */}
-      <nav className="relative flex-1 px-2 mt-4 space-y-1">
-        {NAV_ITEMS.map((item) => {
-          const isResumes = item.href === "/resumes";
-          const isActive =
-            item.href === "/"
-              ? pathname === "/" || pathname.startsWith("/projects")
-              : pathname === item.href;
-          return (
-            <div key={item.href} className="relative">
-              <Link
-                ref={isResumes ? resumeLinkRef : undefined}
-                href={item.href}
-                title={!expanded ? item.label : undefined}
-                className={`
+        {/* Nav */}
+        <nav className="relative flex-1 px-2 mt-4 space-y-1">
+          {NAV_ITEMS.map((item) => {
+            const isResumes = item.href === "/resumes";
+            const isActive =
+              item.href === "/"
+                ? pathname === "/" || pathname.startsWith("/projects")
+                : pathname === item.href;
+            return (
+              <div key={item.href} className="relative">
+                <Link
+                  ref={isResumes ? resumeLinkRef : undefined}
+                  href={item.href}
+                  title={!expanded ? item.label : undefined}
+                  className={`
                   flex items-center gap-3 px-3 py-3 rounded-xl text-base transition-all duration-200
                   ${
                     isActive
@@ -131,73 +132,73 @@ export const Sidebar = () => {
                       : "text-slate-500 hover:bg-violet-100 hover:text-violet-800"
                   }
                 `}
-              >
-                <span
-                  className={`shrink-0 ${isActive ? "text-violet-700" : "text-slate-400"}`}
                 >
-                  {ICONS[item.icon]}
-                </span>
-                <span
-                  className={`whitespace-nowrap transition-opacity duration-200 font-bold text-[15px] ${expanded ? "opacity-100" : "opacity-0"}`}
-                >
-                  {item.label}
-                </span>
-                {isActive && expanded && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse-soft" />
-                )}
-              </Link>
-            </div>
-          );
-        })}
-      </nav>
+                  <span
+                    className={`shrink-0 ${isActive ? "text-violet-700" : "text-slate-400"}`}
+                  >
+                    {ICONS[item.icon]}
+                  </span>
+                  <span
+                    className={`whitespace-nowrap transition-opacity duration-200 font-bold text-[15px] ${expanded ? "opacity-100" : "opacity-0"}`}
+                  >
+                    {item.label}
+                  </span>
+                  {isActive && expanded && (
+                    <div className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse-soft" />
+                  )}
+                </Link>
+              </div>
+            );
+          })}
+        </nav>
 
-      {/* Footer */}
-      <div className="relative px-2 pb-4 space-y-1">
-        {/* Legal links */}
-        <div
-          className={`flex gap-2 px-3 py-1 transition-opacity duration-200 ${expanded ? "opacity-100" : "opacity-0 pointer-events-none"}`}
-        >
-          <Link
-            href="/terms"
-            className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+        {/* Footer */}
+        <div className="relative px-2 pb-4 space-y-1">
+          {/* Legal links */}
+          <div
+            className={`flex gap-2 px-3 py-1 transition-opacity duration-200 ${expanded ? "opacity-100" : "opacity-0 pointer-events-none"}`}
           >
-            이용약관
-          </Link>
-          <span className="text-[10px] text-slate-300">|</span>
-          <Link
-            href="/privacy"
-            className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+            <Link
+              href="/terms"
+              className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              이용약관
+            </Link>
+            <span className="text-[10px] text-slate-300">|</span>
+            <Link
+              href="/privacy"
+              className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              개인정보처리방침
+            </Link>
+          </div>
+
+          <button
+            onClick={signOut}
+            title={!expanded ? "로그아웃" : undefined}
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold text-slate-400 hover:text-violet-800 hover:bg-violet-100 transition-all"
           >
-            개인정보처리방침
-          </Link>
+            <svg
+              className="w-6 h-6 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.8}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
+              />
+            </svg>
+            <span
+              className={`whitespace-nowrap transition-opacity duration-200 text-[15px] ${expanded ? "opacity-100" : "opacity-0"}`}
+            >
+              로그아웃
+            </span>
+          </button>
         </div>
-
-        <button
-          onClick={signOut}
-          title={!expanded ? "로그아웃" : undefined}
-          className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold text-slate-400 hover:text-violet-800 hover:bg-violet-100 transition-all"
-        >
-          <svg
-            className="w-6 h-6 shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.8}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
-            />
-          </svg>
-          <span
-            className={`whitespace-nowrap transition-opacity duration-200 text-[15px] ${expanded ? "opacity-100" : "opacity-0"}`}
-          >
-            로그아웃
-          </span>
-        </button>
-      </div>
-    </aside>
+      </aside>
 
       {/* Resume registration tooltip — fixed outside sidebar to avoid overflow-hidden clipping */}
       {showTooltip && resumeLinkRect && (
@@ -236,5 +237,6 @@ export const Sidebar = () => {
           </div>
         </div>
       )}
+    </>
   );
 };
