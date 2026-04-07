@@ -545,12 +545,13 @@ export default function DashboardPage() {
       }
 
       setProjects((prev) => [project, ...(Array.isArray(prev) ? prev : [])]);
-      setShowCreate(false);
-      setJobPosting("");
-      setJobFile(null);
 
       setCreatingStep("researching");
       const researched = await api.researchCompany(project.id);
+
+      setShowCreate(false);
+      setJobPosting("");
+      setJobFile(null);
       setConfirmProject(researched);
     } catch {
       // keep form open on error
