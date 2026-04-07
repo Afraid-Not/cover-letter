@@ -142,9 +142,11 @@ async def generate(req: GenerateRequest):
     if req.resume_id:
         resume_data = get_resume(req.resume_id)
         structured = resume_data["structured_data"]
+        raw_text = resume_data.get("raw_text", "")
     elif req.resume_text:
         result = process_resume(req.resume_text)
         structured = result["structured"]
+        raw_text = req.resume_text
     else:
         raise HTTPException(400, "resume_id 또는 resume_text가 필요합니다")
 
@@ -157,6 +159,7 @@ async def generate(req: GenerateRequest):
         question=req.question,
         job_analysis=job_analysis,
         resume_structured=structured,
+        resume_raw_text=raw_text,
         rag_results=rag_results,
         char_limit=req.char_limit,
         feedback=req.feedback,

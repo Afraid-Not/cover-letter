@@ -16,14 +16,15 @@ GENERATE_SYSTEM_PROMPT = """당신은 자소서 작성 전문가입니다.
 ## 작성 원칙
 1. **사람이 쓴 것처럼** — AI 특유의 나열식/요약식 톤을 절대 쓰지 마세요.
 2. **합격 자소서 스타일 참고** — 제공된 합격 사례의 문체, 구조, 톤을 자연스럽게 따르세요.
-3. **내 경험 기반** — 이력서에 있는 실제 경험만 사용하세요. 허구를 만들지 마세요.
+3. **내 경험 기반** — [이력서 원문]에 명시된 실제 경험만 사용하세요. 허구를 만들지 마세요.
 4. **채용공고 맞춤** — 채용공고의 요구 역량과 키워드를 자연스럽게 녹이세요.
 5. **구체적으로** — 프로젝트명, 기술, 수치, 결과 등 구체적 사실을 포함하세요.
 6. **자연스러운 흐름** — 상황 → 행동 → 결과가 자연스럽게 이어지도록 작성하세요.
 
 ## 절대 금지 (이것이 가장 중요한 규칙입니다)
+- **[이력서 원문]에 없는 내용은 단 한 글자도 추가하지 마세요.** 학위명, 전공, 기술 스택, 프로젝트, 수치, 자격증 모두 원문에 명시된 것만 사용하세요. 원문에 없으면 절대 쓰지 마세요.
 - **참고 자소서의 경험을 내 경험인 것처럼 쓰지 마세요.** 참고 자소서에 나오는 회사명, 프로젝트, 기술, 수치, 자격증은 다른 사람의 것입니다. 절대 가져다 쓰지 마세요.
-- 이력서에 없는 경험, 자격증, 프로젝트, 수치를 지어내지 마세요. 이력서에 없으면 쓰지 마세요.
+- 채용공고에 요구되는 기술이라도 이력서 원문에 없으면 보유한 것처럼 쓰지 마세요.
 - "저는 ~라고 생각합니다"로 시작하지 마세요.
 - 불필요한 수식어, 과장된 표현을 쓰지 마세요.
 - 각 문단의 첫 문장에 핵심을 담으세요.
@@ -42,7 +43,8 @@ REGENERATE_SYSTEM_PROMPT = """당신은 자소서 개선 전문가입니다.
 6. **글자수 제한** — 글자수 제한이 있으면 반드시 지키세요.
 
 ## 절대 금지
-- 이력서에 없는 경험, 자격증, 프로젝트, 수치를 새로 만들지 마세요. 구체성 강화를 위해 없는 내용을 지어내는 것은 금지입니다.
+- [이력서 원문]에 없는 학위명·전공·기술·경험·수치를 새로 만들지 마세요. 구체성 강화를 위해 없는 내용을 지어내는 것은 금지입니다.
+- 채용공고에 요구되는 기술이라도 이력서 원문에 없으면 보유한 것처럼 쓰지 마세요.
 - 참고 자소서에 나오는 다른 사람의 회사명, 프로젝트, 수치를 내 것처럼 쓰지 마세요."""
 
 
@@ -55,6 +57,7 @@ def generate_answer(
     feedback: str | None = None,
     previous_answer: str | None = None,
     company_research: dict | None = None,
+    resume_raw_text: str | None = None,
 ) -> str:
     """자소서 답변을 생성한다."""
     is_regen = bool(feedback and previous_answer)
@@ -62,7 +65,7 @@ def generate_answer(
 
     user_prompt = _build_user_prompt(
         question, job_analysis, resume_structured, rag_results,
-        char_limit, feedback, previous_answer, company_research,
+        char_limit, feedback, previous_answer, company_research, resume_raw_text,
     )
 
     response = openai_client.chat.completions.create(
@@ -86,6 +89,7 @@ def _build_user_prompt(
     feedback: str | None,
     previous_answer: str | None,
     company_research: dict | None = None,
+    resume_raw_text: str | None = None,
 ) -> str:
     """생성 프롬프트를 구성한다. 재생성 시 피드백을 상단에 배치한다."""
     parts = []
@@ -128,6 +132,10 @@ def _build_user_prompt(
 
     # 이력서 정보
     parts.append(f"\n## 내 이력서")
+    if resume_raw_text:
+        parts.append("### 이력서 원문 (이것이 사실의 기준입니다 — 원문에 없는 학위·기술·경험은 절대 작성 금지)")
+        parts.append(resume_raw_text[:5000])
+        parts.append("\n### 구조화 요약")
     parts.append(_resume_to_text(resume_structured))
 
     # RAG 참고 자소서
