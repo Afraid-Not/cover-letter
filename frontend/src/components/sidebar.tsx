@@ -14,32 +14,60 @@ const NAV_ITEMS = [
 
 const ICONS: Record<string, ReactNode> = {
   edit: (
+    // 자소서 관리: 깃털 펜 + 스파클 — 창의적 글쓰기
     <svg
-      className="w-7 h-7"
+      className="w-6 h-6"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      strokeWidth={1.8}
+      strokeWidth={1.7}
     >
+      {/* Feather quill body */}
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+        d="M20 4C15 4 8 9 7 16l1 1c7-1 12-8 12-13Z"
+      />
+      {/* Quill shaft */}
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16 4 20" />
+      {/* Nib split */}
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 17 9 15" />
+      {/* Sparkle top-right */}
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M17 2v2M21 6h-2M19 2l-1.5 1.5"
       />
     </svg>
   ),
   file: (
+    // 이력서 관리: ID 카드 — 프로필/신원 정보
     <svg
-      className="w-7 h-7"
+      className="w-6 h-6"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      strokeWidth={1.8}
+      strokeWidth={1.7}
     >
+      {/* Card outline */}
+      <rect
+        x="2"
+        y="5"
+        width="20"
+        height="14"
+        rx="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Avatar circle */}
+      <circle cx="8" cy="11" r="2.2" strokeLinecap="round" />
+      {/* Name line */}
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 9.5h5" />
+      {/* Sub-info lines */}
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+        d="M13 12.5h4M13 15h3"
       />
     </svg>
   ),
@@ -139,7 +167,11 @@ export const Sidebar = () => {
                     {ICONS[item.icon]}
                   </span>
                   <span
-                    className={`whitespace-nowrap transition-opacity duration-200 font-bold text-[15px] ${expanded ? "opacity-100" : "opacity-0"}`}
+                    className={`whitespace-nowrap transition-opacity duration-200 text-[14px] tracking-wide ${
+                      isActive
+                        ? "font-semibold text-violet-800"
+                        : "font-medium text-slate-500"
+                    } ${expanded ? "opacity-100" : "opacity-0"}`}
                   >
                     {item.label}
                   </span>
