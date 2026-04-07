@@ -1289,12 +1289,15 @@ export default function ProjectPage({
                           >
                             복사
                           </Button>
-                          {genStep === "done" && (
+                          {(genStep === "done" || isLoading) && (
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={handleRegenerate}
-                              disabled={versions.length >= MAX_REGENERATIONS}
+                              disabled={
+                                versions.length >= MAX_REGENERATIONS ||
+                                isLoading
+                              }
                               title={
                                 versions.length >= MAX_REGENERATIONS
                                   ? "재생성은 최대 5회까지 가능합니다"
