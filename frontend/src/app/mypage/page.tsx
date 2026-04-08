@@ -548,7 +548,7 @@ const MyPage = () => {
                 ) : (
                   <MetricCard
                     title="회사 검색"
-                    value={usage.extra_company_searches ?? 0}
+                    value={usage?.extra_company_searches ?? 0}
                     suffix="회"
                     description="무제한 사용 가능"
                     icon={Search}
