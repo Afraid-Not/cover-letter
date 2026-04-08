@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
 
 export const FooterBar = () => {
-  const { signOut } = useAuth();
+  const { signOut, role } = useAuth();
 
   return (
     <footer className="fixed bottom-0 left-0 right-0 z-40 px-6 py-2.5 bg-background/80 backdrop-blur-md border-t border-border">
@@ -23,6 +23,17 @@ export const FooterBar = () => {
           >
             개인정보처리방침
           </Link>
+          {role === "admin" && (
+            <>
+              <span className="text-[11px] text-border">|</span>
+              <Link
+                href="/admin"
+                className="text-[11px] text-violet-400 hover:text-violet-300 transition-colors font-medium"
+              >
+                관리자
+              </Link>
+            </>
+          )}
         </div>
         <button
           onClick={signOut}

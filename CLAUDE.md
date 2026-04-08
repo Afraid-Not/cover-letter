@@ -141,6 +141,29 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - **상태 컬러**: draft(gray), ready(sky), generated(amber), evaluated(emerald)
 - **서비스명**: AURA
 
+## 관리자 시스템
+
+- **접근**: `profiles.role = 'admin'`인 유저만 `/admin` 페이지 진입 가능 (`auth-provider`에서 `role` 노출)
+- **관리자 대시보드** (`frontend/src/app/admin/page.tsx`):
+  - KPI 카드: 총 유저 수, 오늘/총 생성 수, 플랜 분포
+  - 유저 관리 탭: 플랜 드롭다운 변경, 추가 재생성 횟수 스피너 즉시 저장
+  - 생성 이력 탭: 최근 100건 조회
+  - 자소서 등록 이력 탭: 최근 100건 조회
+  - 플랜 구매 설정: `app_settings` 테이블의 `plan_{free|pro|enterprise}_enabled` 토글
+- **관리자 API** (`/api/admin/*`): `_check_admin()` 함수로 권한 검증
+  - `GET /api/admin/stats` — KPI 통계
+  - `GET /api/admin/users` — 전체 유저 목록 (Supabase Auth Admin API + profiles 조인)
+  - `GET /api/admin/generations` — 최근 생성 이력 100건
+  - `GET /api/admin/resumes` — 최근 이력서 등록 이력 100건
+  - `GET /api/admin/settings` — 플랜 on/off 설정 조회
+  - `PATCH /api/admin/settings` — 플랜 on/off 설정 변경
+  - `PATCH /api/admin/users/{user_id}/plan` — 유저 플랜 강제 변경
+  - `PATCH /api/admin/users/{user_id}/extra-regenerations` — 추가 재생성 횟수 설정
+- **퍼블릭 설정 API**: `GET /api/plan-settings` — 인증 없이 플랜 활성 여부 반환, pricing 페이지에서 사용
+- **`/api/usage` 개선**: `extra_regenerations`를 `limits.regenerations`에 합산하여 반환 (무제한 플랜 제외)
+- **pricing 페이지 연동**: 페이지 진입 시 `/api/plan-settings` fetch → 비활성 플랜 카드 dimmed + 버튼 disabled
+- **마이그레이션**: `migration/007_admin.sql` — `profiles.role`, `profiles.extra_regenerations`, `app_settings` 테이블
+
 ## 플랜 시스템 (api/main.py)
 
 - `PLAN_LIMITS` dict: free (이력서 1개, 생성 5회/월, 재생성 0회) | pro (이력서 10개, 생성 무제한, 재생성 5회/월) | enterprise (모두 무제한)

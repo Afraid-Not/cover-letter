@@ -247,11 +247,20 @@ async def generate(req: GenerateRequest, request: Request):
             is_regen = bool(req.feedback and req.previous_answer)
 
             if is_regen:
-                if limits["regenerations"] == 0:
+                # extra_regenerations 반영
+                try:
+                    extra_res = sb_plan.table("profiles").select("extra_regenerations").eq("user_id", gen_user_id).single().execute()
+                    extra_regen = (extra_res.data or {}).get("extra_regenerations", 0)
+                except Exception:
+                    extra_regen = 0
+                base_limit = limits["regenerations"]
+                effective_regen_limit = (base_limit + extra_regen) if base_limit >= 0 else -1
+
+                if effective_regen_limit == 0:
                     raise HTTPException(status_code=403, detail="PLAN_LIMIT|현재 플랜에서는 재생성이 불가합니다.")
-                elif limits["regenerations"] > 0:
+                elif effective_regen_limit > 0:
                     monthly = _count_monthly_usage(sb_plan, gen_user_id)
-                    if monthly["regenerations"] >= limits["regenerations"]:
+                    if monthly["regenerations"] >= effective_regen_limit:
                         raise HTTPException(status_code=403, detail="PLAN_LIMIT|이번 달 재생성 횟수를 초과했습니다.")
             else:
                 if limits["generations"] > 0:
@@ -781,6 +790,24 @@ async def create_project_version(project_id: int, req: CreateVersionRequest, req
     return version_result.data[0]
 
 
+@app.get("/api/plan-settings")
+async def get_plan_settings():
+    """플랜 활성화 여부 조회 (퍼블릭)."""
+    sb = _get_sb()
+    try:
+        result = sb.table("app_settings").select("key, value").in_(
+            "key", ["plan_free_enabled", "plan_pro_enabled", "plan_enterprise_enabled"]
+        ).execute()
+        settings = {row["key"]: row["value"] for row in (result.data or [])}
+    except Exception:
+        settings = {}
+    return {
+        "plan_free_enabled": settings.get("plan_free_enabled", True),
+        "plan_pro_enabled": settings.get("plan_pro_enabled", True),
+        "plan_enterprise_enabled": settings.get("plan_enterprise_enabled", True),
+    }
+
+
 @app.get("/api/usage")
 async def get_usage(request: Request):
     """현재 사용자의 플랜 및 사용량 조회."""
@@ -793,9 +820,18 @@ async def get_usage(request: Request):
 
     sb = _get_sb(token)
     plan = _get_user_plan(sb, user_id)
-    limits = PLAN_LIMITS[plan]
+    limits = dict(PLAN_LIMITS[plan])
     monthly = _count_monthly_usage(sb, user_id)
     resume_count = _count_resumes(sb, user_id)
+
+    # extra_regenerations 반영: 한도가 무제한(-1)이 아닌 경우에만 더함
+    try:
+        extra_res = sb.table("profiles").select("extra_regenerations").eq("user_id", user_id).single().execute()
+        extra_regen = (extra_res.data or {}).get("extra_regenerations", 0) or 0
+    except Exception:
+        extra_regen = 0
+    if limits["regenerations"] >= 0:
+        limits["regenerations"] += extra_regen
 
     return {
         "plan": plan,
@@ -860,6 +896,16 @@ async def change_plan(req: ChangePlanRequest, request: Request):
     """사용자 플랜 변경."""
     if req.plan not in ("free", "pro", "enterprise"):
         raise HTTPException(status_code=400, detail="유효하지 않은 플랜입니다")
+    # 플랜 구매 가능 여부 확인
+    sb_admin = _get_sb()
+    try:
+        setting = sb_admin.table("app_settings").select("value").eq("key", f"plan_{req.plan}_enabled").single().execute()
+        if setting.data and setting.data.get("value") is False:
+            raise HTTPException(status_code=403, detail="현재 해당 플랜은 구매할 수 없습니다.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # app_settings 조회 실패시 허용
     token = _extract_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
@@ -896,3 +942,195 @@ async def get_my_profile(request: Request):
         raise HTTPException(status_code=404, detail=f"프로필을 찾을 수 없습니다: {e}")
 
     return result.data
+
+
+# ── 관리자 (Admin) ──
+
+def _check_admin(token: str | None) -> str:
+    """토큰에서 user_id를 추출하고 admin 권한을 검증한다. user_id 반환."""
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+    sb = _get_sb()  # service_role — RLS bypass
+    try:
+        result = sb.table("profiles").select("role").eq("user_id", user_id).single().execute()
+        role = (result.data or {}).get("role", "user")
+    except Exception:
+        role = "user"
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
+    return user_id
+
+
+class AdminChangePlanRequest(BaseModel):
+    plan: str  # "free" | "pro" | "enterprise"
+
+
+class AdminExtraRegenRequest(BaseModel):
+    extra_regenerations: int  # 절댓값으로 설정
+
+
+class AdminSettingsRequest(BaseModel):
+    plan_free_enabled: bool | None = None
+    plan_pro_enabled: bool | None = None
+    plan_enterprise_enabled: bool | None = None
+
+
+@app.get("/api/admin/stats")
+async def admin_stats(request: Request):
+    """서비스 전체 KPI 지표 조회."""
+    _check_admin(_extract_token(request))
+    from datetime import datetime, timezone, date
+    sb = _get_sb()
+
+    today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
+
+    try:
+        total_users = sb.table("profiles").select("user_id", count="exact").execute().count or 0
+        plan_dist_res = sb.table("profiles").select("plan").execute()
+        plan_dist: dict = {"free": 0, "pro": 0, "enterprise": 0}
+        for row in (plan_dist_res.data or []):
+            plan_dist[row.get("plan", "free")] = plan_dist.get(row.get("plan", "free"), 0) + 1
+
+        today_gen = sb.table("generations").select("id", count="exact").gte("created_at", today_start).is_("project_id", "null").execute().count or 0
+        total_gen = sb.table("generations").select("id", count="exact").is_("project_id", "null").execute().count or 0
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"통계 조회 실패: {e}")
+
+    return {
+        "total_users": total_users,
+        "today_generations": today_gen,
+        "total_generations": total_gen,
+        "plan_distribution": plan_dist,
+    }
+
+
+@app.get("/api/admin/users")
+async def admin_list_users(request: Request):
+    """전체 유저 목록 (프로필 + 이메일) 조회."""
+    import httpx
+    _check_admin(_extract_token(request))
+    sb = _get_sb()
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")
+    supabase_url = os.getenv("SUPABASE_URL", "")
+
+    try:
+        profiles_res = sb.table("profiles").select("user_id, name, plan, role, extra_regenerations, created_at").execute()
+        profiles_map = {p["user_id"]: p for p in (profiles_res.data or [])}
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{supabase_url}/auth/v1/admin/users",
+                headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"},
+                params={"per_page": 1000},
+            )
+        auth_users = resp.json().get("users", []) if resp.status_code == 200 else []
+
+        result = []
+        for u in auth_users:
+            uid = u.get("id")
+            profile = profiles_map.get(uid, {})
+            result.append({
+                "user_id": uid,
+                "email": u.get("email", ""),
+                "name": profile.get("name", ""),
+                "plan": profile.get("plan", "free"),
+                "role": profile.get("role", "user"),
+                "extra_regenerations": profile.get("extra_regenerations", 0),
+                "created_at": u.get("created_at", ""),
+            })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"유저 목록 조회 실패: {e}")
+
+    return result
+
+
+@app.get("/api/admin/generations")
+async def admin_list_generations(request: Request):
+    """최근 생성 이력 조회 (루트 프로젝트만)."""
+    _check_admin(_extract_token(request))
+    sb = _get_sb()
+    try:
+        result = sb.table("generations").select(
+            "id, user_id, job_analysis, answer, is_regeneration, created_at"
+        ).is_("project_id", "null").order("created_at", desc=True).limit(100).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"생성 이력 조회 실패: {e}")
+    return result.data or []
+
+
+@app.get("/api/admin/resumes")
+async def admin_list_resumes(request: Request):
+    """관리자: 전체 이력서 등록 이력 조회."""
+    _check_admin(_extract_token(request))
+    sb = _get_sb()
+    try:
+        result = sb.table("resumes").select(
+            "id, user_id, name, created_at"
+        ).order("created_at", desc=True).limit(100).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"이력서 이력 조회 실패: {e}")
+    return result.data or []
+
+
+@app.get("/api/admin/settings")
+async def admin_get_settings(request: Request):
+    """앱 설정 조회 (플랜 on/off)."""
+    _check_admin(_extract_token(request))
+    sb = _get_sb()
+    try:
+        result = sb.table("app_settings").select("key, value").execute()
+        return {row["key"]: row["value"] for row in (result.data or [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"설정 조회 실패: {e}")
+
+
+@app.patch("/api/admin/settings")
+async def admin_update_settings(req: AdminSettingsRequest, request: Request):
+    """앱 설정 업데이트 (플랜 on/off)."""
+    _check_admin(_extract_token(request))
+    sb = _get_sb()
+    updates = {}
+    if req.plan_free_enabled is not None:
+        updates["plan_free_enabled"] = req.plan_free_enabled
+    if req.plan_pro_enabled is not None:
+        updates["plan_pro_enabled"] = req.plan_pro_enabled
+    if req.plan_enterprise_enabled is not None:
+        updates["plan_enterprise_enabled"] = req.plan_enterprise_enabled
+
+    try:
+        for key, val in updates.items():
+            sb.table("app_settings").upsert({"key": key, "value": val, "updated_at": "now()"}, on_conflict="key").execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"설정 업데이트 실패: {e}")
+    return {"ok": True}
+
+
+@app.patch("/api/admin/users/{user_id}/plan")
+async def admin_change_user_plan(user_id: str, req: AdminChangePlanRequest, request: Request):
+    """관리자: 특정 유저의 플랜 강제 변경."""
+    _check_admin(_extract_token(request))
+    if req.plan not in ("free", "pro", "enterprise"):
+        raise HTTPException(status_code=400, detail="유효하지 않은 플랜입니다")
+    sb = _get_sb()
+    try:
+        sb.table("profiles").update({"plan": req.plan}).eq("user_id", user_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"플랜 변경 실패: {e}")
+    return {"ok": True}
+
+
+@app.patch("/api/admin/users/{user_id}/extra-regenerations")
+async def admin_set_extra_regenerations(user_id: str, req: AdminExtraRegenRequest, request: Request):
+    """관리자: 특정 유저의 추가 재생성 횟수 설정."""
+    _check_admin(_extract_token(request))
+    if req.extra_regenerations < 0:
+        raise HTTPException(status_code=400, detail="음수는 허용되지 않습니다")
+    sb = _get_sb()
+    try:
+        sb.table("profiles").update({"extra_regenerations": req.extra_regenerations}).eq("user_id", user_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"추가 재생성 횟수 설정 실패: {e}")
+    return {"ok": True}

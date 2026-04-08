@@ -8,6 +8,7 @@ interface AuthContext {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  role: "user" | "admin" | null;
   signOut: () => Promise<void>;
 }
 
@@ -15,6 +16,7 @@ const AuthCtx = createContext<AuthContext>({
   user: null,
   session: null,
   loading: true,
+  role: null,
   signOut: async () => {},
 });
 
@@ -23,6 +25,7 @@ export const useAuth = () => useContext(AuthCtx);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<"user" | "admin" | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -39,9 +42,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setRole(null);
+      return;
+    }
+    supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        setRole((data?.role as "user" | "admin") ?? "user");
+      });
+  }, [session?.user?.id]);
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setSession(null);
+    setRole(null);
     window.location.href = "/login";
   };
 
@@ -51,6 +70,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user: session?.user ?? null,
         session,
         loading,
+        role,
         signOut,
       }}
     >

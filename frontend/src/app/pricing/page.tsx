@@ -123,6 +123,21 @@ function PricingContent() {
 
   const [currentPlan, setCurrentPlan] = useState<PlanKey | null>(null);
   const [changing, setChanging] = useState<PlanKey | null>(null);
+  const [planEnabled, setPlanEnabled] = useState<Record<PlanKey, boolean>>({
+    free: true,
+    pro: true,
+    enterprise: true,
+  });
+
+  useEffect(() => {
+    api.getPlanSettings().then((s) =>
+      setPlanEnabled({
+        free: s.plan_free_enabled,
+        pro: s.plan_pro_enabled,
+        enterprise: s.plan_enterprise_enabled,
+      }),
+    );
+  }, []);
 
   useEffect(() => {
     if (isOnboarding) return; // 신규 가입 플로우 — 현재 플랜 불필요
@@ -177,17 +192,27 @@ function PricingContent() {
           {PLANS.map((plan) => {
             const isCurrent = currentPlan === plan.key;
             const isChanging = changing === plan.key;
+            const isDisabled = !planEnabled[plan.key];
 
             return (
               <div key={plan.key} className="relative flex flex-col">
-                {plan.popular && !(isCurrent && !isOnboarding) && (
+                {plan.popular &&
+                  !(isCurrent && !isOnboarding) &&
+                  !isDisabled && (
+                    <div className="absolute -top-3.5 left-0 right-0 flex justify-center z-10">
+                      <span className="bg-primary text-primary-foreground text-[11px] font-semibold tracking-wider px-3 py-1 rounded-full uppercase">
+                        Most Popular
+                      </span>
+                    </div>
+                  )}
+                {isDisabled && (
                   <div className="absolute -top-3.5 left-0 right-0 flex justify-center z-10">
-                    <span className="bg-primary text-primary-foreground text-[11px] font-semibold tracking-wider px-3 py-1 rounded-full uppercase">
-                      Most Popular
+                    <span className="bg-zinc-700 text-zinc-300 text-[11px] font-semibold tracking-wider px-3 py-1 rounded-full">
+                      현재 비활성
                     </span>
                   </div>
                 )}
-                {!isOnboarding && isCurrent && (
+                {!isOnboarding && isCurrent && !isDisabled && (
                   <div className="absolute -top-3.5 left-0 right-0 flex justify-center z-10">
                     <span className="bg-emerald-500 text-white text-[11px] font-semibold tracking-wider px-3 py-1 rounded-full">
                       현재 플랜
@@ -196,10 +221,12 @@ function PricingContent() {
                 )}
                 <Card
                   className={`flex flex-col flex-1 transition-all ${
-                    isCurrent
-                      ? `${plan.activeBorder} shadow-lg ring-1 ring-inset ring-white/5`
-                      : plan.borderClass
-                  } ${plan.popular && !isCurrent ? "shadow-lg shadow-primary/10" : ""}`}
+                    isDisabled
+                      ? "border-border opacity-60"
+                      : isCurrent
+                        ? `${plan.activeBorder} shadow-lg ring-1 ring-inset ring-white/5`
+                        : plan.borderClass
+                  } ${plan.popular && !isCurrent && !isDisabled ? "shadow-lg shadow-primary/10" : ""}`}
                 >
                   <CardHeader className="border-b border-border p-6 gap-0">
                     <div className="flex items-center gap-3 mb-4">
@@ -257,6 +284,7 @@ function PricingContent() {
                       }
                       className="w-full"
                       disabled={
+                        isDisabled ||
                         (!isOnboarding && isCurrent) ||
                         isChanging ||
                         changing !== null
@@ -268,6 +296,8 @@ function PricingContent() {
                           <LoaderCircle className="w-4 h-4 animate-spin" />
                           변경 중...
                         </span>
+                      ) : isDisabled ? (
+                        "현재 비활성"
                       ) : isCurrent ? (
                         "현재 플랜"
                       ) : (
