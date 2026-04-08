@@ -1134,3 +1134,232 @@ async def admin_set_extra_regenerations(user_id: str, req: AdminExtraRegenReques
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"추가 재생성 횟수 설정 실패: {e}")
     return {"ok": True}
+
+
+# ── 결제 (Toss Payments) ──
+
+TOSS_SECRET_KEY = os.getenv("TOSS_SECRET_KEY", "")
+
+PLAN_AMOUNTS = {"pro": 9900, "enterprise": 99000}
+PLAN_NAMES   = {"pro": "AURA Pro", "enterprise": "AURA Enterprise"}
+
+
+class BillingAuthRequest(BaseModel):
+    auth_key: str
+    customer_key: str
+    plan: str  # "pro" | "enterprise"
+
+
+@app.post("/api/payments/billing-auth")
+async def billing_auth(req: BillingAuthRequest, request: Request):
+    """빌링키 발급 + 즉시 첫 결제 후 플랜 활성화."""
+    import base64, uuid as _uuid, httpx
+    from datetime import datetime, timezone, timedelta
+
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+    if req.plan not in ("pro", "enterprise"):
+        raise HTTPException(status_code=400, detail="유효하지 않은 플랜입니다")
+
+    secret = base64.b64encode(f"{TOSS_SECRET_KEY}:".encode()).decode()
+    headers = {"Authorization": f"Basic {secret}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # 1. 빌링키 발급
+        auth_res = await client.post(
+            f"https://api.tosspayments.com/v1/billing/authorizations/{req.auth_key}",
+            headers=headers,
+            json={"customerKey": req.customer_key},
+        )
+        if auth_res.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"빌링키 발급 실패: {auth_res.text}")
+        billing_key = auth_res.json()["billingKey"]
+
+        # 2. 즉시 첫 결제
+        order_id = f"AURA-{_uuid.uuid4().hex[:16]}"
+        pay_res = await client.post(
+            f"https://api.tosspayments.com/v1/billing/{billing_key}",
+            headers=headers,
+            json={
+                "customerKey": req.customer_key,
+                "amount": PLAN_AMOUNTS[req.plan],
+                "orderId": order_id,
+                "orderName": PLAN_NAMES[req.plan],
+            },
+        )
+        if pay_res.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"결제 실패: {pay_res.text}")
+
+    now = datetime.now(timezone.utc)
+    next_billing = now + timedelta(days=30)
+
+    sb = _get_sb()  # service_role — RLS bypass
+    sb.table("subscriptions").upsert(
+        {
+            "user_id": user_id,
+            "plan": req.plan,
+            "billing_key": billing_key,
+            "customer_key": req.customer_key,
+            "status": "active",
+            "amount": PLAN_AMOUNTS[req.plan],
+            "last_billed_at": now.isoformat(),
+            "next_billing_date": next_billing.isoformat(),
+            "updated_at": now.isoformat(),
+        },
+        on_conflict="user_id",
+    ).execute()
+    sb.table("profiles").update({"plan": req.plan}).eq("user_id", user_id).execute()
+
+    return {"ok": True, "plan": req.plan}
+
+
+@app.get("/api/payments/subscription")
+async def get_subscription(request: Request):
+    """현재 구독 정보 조회."""
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    sb = _get_sb()
+    try:
+        result = (
+            sb.table("subscriptions")
+            .select("plan, status, amount, last_billed_at, next_billing_date, created_at")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+        return result.data or {}
+    except Exception:
+        return {}
+
+
+@app.delete("/api/payments/subscription")
+async def cancel_subscription(request: Request):
+    """구독 취소 — 즉시 free 다운그레이드."""
+    from datetime import datetime, timezone
+
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    now = datetime.now(timezone.utc).isoformat()
+    sb = _get_sb()
+    sb.table("subscriptions").update({"status": "cancelled", "updated_at": now}).eq("user_id", user_id).execute()
+    sb.table("profiles").update({"plan": "free"}).eq("user_id", user_id).execute()
+    return {"ok": True}
+
+
+@app.post("/api/payments/webhook")
+async def payment_webhook(request: Request):
+    """토스 자동결제 웹훅 — 결제 성공/실패 처리."""
+    import json as _json
+    from datetime import datetime, timezone, timedelta
+
+    body = await request.body()
+    try:
+        data = _json.loads(body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    payment = data.get("data", {})
+    customer_key = payment.get("customerKey")
+    status = payment.get("status")
+    if not customer_key:
+        return {"ok": True}
+
+    now = datetime.now(timezone.utc)
+    sb = _get_sb()
+
+    if status == "DONE":
+        next_billing = now + timedelta(days=30)
+        sb.table("subscriptions").update(
+            {
+                "status": "active",
+                "last_billed_at": now.isoformat(),
+                "next_billing_date": next_billing.isoformat(),
+                "updated_at": now.isoformat(),
+            }
+        ).eq("customer_key", customer_key).execute()
+    elif status == "FAILED":
+        sub = sb.table("subscriptions").select("user_id").eq("customer_key", customer_key).single().execute()
+        if sub.data:
+            uid = sub.data["user_id"]
+            sb.table("subscriptions").update({"status": "failed", "updated_at": now.isoformat()}).eq("customer_key", customer_key).execute()
+            sb.table("profiles").update({"plan": "free"}).eq("user_id", uid).execute()
+
+    return {"ok": True}
+
+
+@app.post("/api/payments/charge-recurring")
+async def charge_recurring(request: Request):
+    """월 자동결제 — cron-job.org에서 매월 호출."""
+    import base64, uuid as _uuid, httpx
+    from datetime import datetime, timezone, timedelta
+
+    # 시크릿 키 검증 (헤더 또는 쿼리 파라미터)
+    cron_secret = os.getenv("CRON_SECRET", "")
+    provided = request.headers.get("x-cron-secret") or request.query_params.get("secret")
+    if provided != cron_secret:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    now = datetime.now(timezone.utc)
+    sb = _get_sb()
+
+    # next_billing_date가 지난 활성 구독 조회
+    subs = (
+        sb.table("subscriptions")
+        .select("user_id, plan, billing_key, customer_key, amount")
+        .eq("status", "active")
+        .lte("next_billing_date", now.isoformat())
+        .execute()
+    )
+
+    if not subs.data:
+        return {"ok": True, "charged": 0, "failed": 0}
+
+    secret = base64.b64encode(f"{TOSS_SECRET_KEY}:".encode()).decode()
+    headers = {"Authorization": f"Basic {secret}", "Content-Type": "application/json"}
+
+    charged, failed = 0, 0
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for sub in subs.data:
+            order_id = f"AURA-{_uuid.uuid4().hex[:16]}"
+            try:
+                res = await client.post(
+                    f"https://api.tosspayments.com/v1/billing/{sub['billing_key']}",
+                    headers=headers,
+                    json={
+                        "customerKey": sub["customer_key"],
+                        "amount": sub["amount"],
+                        "orderId": order_id,
+                        "orderName": PLAN_NAMES.get(sub["plan"], "AURA"),
+                    },
+                )
+                if res.status_code == 200:
+                    next_billing = now + timedelta(days=30)
+                    sb.table("subscriptions").update({
+                        "last_billed_at": now.isoformat(),
+                        "next_billing_date": next_billing.isoformat(),
+                        "updated_at": now.isoformat(),
+                    }).eq("user_id", sub["user_id"]).execute()
+                    charged += 1
+                else:
+                    raise Exception(res.text)
+            except Exception as e:
+                logging.error(f"[charge-recurring] user={sub['user_id']} error={e}")
+                sb.table("subscriptions").update({"status": "failed", "updated_at": now.isoformat()}).eq("user_id", sub["user_id"]).execute()
+                sb.table("profiles").update({"plan": "free"}).eq("user_id", sub["user_id"]).execute()
+                failed += 1
+
+    return {"ok": True, "charged": charged, "failed": failed}

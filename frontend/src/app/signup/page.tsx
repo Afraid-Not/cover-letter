@@ -5,11 +5,23 @@ import { useRouter } from "next/navigation";
 import { SignUpPage, type SignUpFormData } from "@/components/ui/sign-up";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function SignupPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const handleGoogleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
+  };
+
+  const handleKakaoLogin = () => {
+    toast.info("카카오 로그인은 현재 준비 중입니다.");
+  };
 
   const handleSignUp = async (form: SignUpFormData) => {
     setError("");
@@ -55,6 +67,8 @@ export default function SignupPage() {
       heroImageSrc="/login-page.png"
       onSignUp={handleSignUp}
       onSignIn={() => router.push("/login")}
+      onGoogleLogin={handleGoogleLogin}
+      onKakaoLogin={handleKakaoLogin}
       loading={loading}
       error={error}
     />

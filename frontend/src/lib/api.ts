@@ -257,6 +257,47 @@ export const api = {
     return r.json();
   },
 
+  billingAuth: async (data: {
+    auth_key: string;
+    customer_key: string;
+    plan: string;
+  }) => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/payments/billing-auth`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || "결제 처리 실패");
+    }
+    return r.json();
+  },
+
+  getSubscription: async (): Promise<{
+    plan?: string;
+    status?: string;
+    amount?: number;
+    last_billed_at?: string;
+    next_billing_date?: string;
+  }> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/payments/subscription`, { headers });
+    if (!r.ok) return {};
+    return r.json();
+  },
+
+  cancelSubscription: async () => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/payments/subscription`, {
+      method: "DELETE",
+      headers,
+    });
+    if (!r.ok) throw new Error("구독 취소 실패");
+    return r.json();
+  },
+
   getProfile: async () => {
     const headers = await getAuthHeaders();
     return fetch(`${API_BASE}/api/profiles/me`, { headers }).then((r) =>

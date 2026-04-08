@@ -44,7 +44,7 @@ cover-letter/
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /payments/success, /payments/fail
 │       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
 │       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, card, dialog…
 │       ├── hooks/            # use-navigation-guard (작업 중 브라우저 이탈 차단)
@@ -53,11 +53,12 @@ cover-letter/
 │   ├── 002_companies_table.sql        # companies 테이블 (회사 조사 캐시)
 │   ├── 003_match_companies_function.sql
 │   ├── 004_add_plan_usage_tracking.sql  # profiles 플랜 컬럼 + is_regeneration 플래그
-│   └── 005_avatars_storage.sql        # profiles avatar_url/bio 컬럼 + avatars 스토리지 버킷 + RLS
+│   ├── 005_avatars_storage.sql        # profiles avatar_url/bio 컬럼 + avatars 스토리지 버킷 + RLS
+│   └── 008_subscriptions.sql          # subscriptions 테이블 (구독 결제 정보)
 ├── email-templates/          # Supabase Auth 이메일 템플릿 (가입 인증)
 ├── data/data.txt             # 합격 자소서 39건 원본
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
-├── .env                      # SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, TAVILY_API_KEY, DART_API_KEY
+├── .env                      # SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, TAVILY_API_KEY, DART_API_KEY, TOSS_SECRET_KEY
 ├── frontend/.env.local       # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
 └── PLAN.md                   # 상세 기획 문서
 ```
@@ -78,6 +79,7 @@ cover-letter/
   - `avatar_url` — 프로필 사진 URL (Supabase Storage avatars 버킷)
   - `bio` — 자기소개 (최대 200자)
 - `avatars` (Storage Bucket) — 프로필 사진 저장 (public read, 소유자만 write); 폴더 구조: `{user_id}/{filename}`
+- `subscriptions` — 구독 결제 정보 (user_id, plan, billing_key, customer_key, status, amount, last_billed_at, next_billing_date)
 
 ## 주요 설계 결정
 
@@ -172,6 +174,22 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - `/api/usage` — 현재 플랜 + 월별 사용량 조회
 - `/api/profiles/plan` PATCH — 플랜 변경
 - 회원가입 플로우: 회원가입 → `/pricing?onboarding=1` → 플랜 선택 → `/welcome`
+
+## Toss Payments 결제 시스템
+
+- **결제 수단**: Toss Payments 빌링키 방식 정기 구독 결제
+- **요금**: `PLAN_AMOUNTS` — pro=9,900원/월, enterprise=99,000원/월
+- **환경 변수**: `TOSS_SECRET_KEY` (`.env`에 추가 필요)
+- **결제 API** (`api/main.py`):
+  - `POST /api/payments/billing-auth` — 빌링키 발급 + 즉시 첫 결제 + 플랜 활성화 (authKey, customerKey, planKey 파라미터)
+  - `GET /api/payments/subscription` — 현재 구독 정보 조회
+  - `DELETE /api/payments/subscription` — 구독 취소 (status → cancelled)
+- **결제 페이지**:
+  - `/payments/success` — 결제 성공 콜백 처리 (authKey/customerKey/planKey → billingAuth API 호출 → `/welcome` 또는 `/mypage`로 리다이렉트)
+  - `/payments/fail` — 결제 실패 안내
+- **pricing 페이지 연동**: Toss Payments 위젯 직접 연동, 유료 플랜 선택 시 결제 위젯 실행
+- **프론트엔드 API 함수** (`frontend/src/lib/api.ts`): `billingAuth`, `getSubscription`, `cancelSubscription`
+- **마이그레이션**: `migration/008_subscriptions.sql` — subscriptions 테이블
 
 ## 프로젝트 플로우
 
