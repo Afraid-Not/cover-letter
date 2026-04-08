@@ -224,6 +224,21 @@ export const api = {
     return r.json();
   },
 
+  getPlanSettings: async (): Promise<{
+    plan_free_enabled: boolean;
+    plan_pro_enabled: boolean;
+    plan_enterprise_enabled: boolean;
+  }> => {
+    const r = await fetch(`${API_BASE}/api/plan-settings`);
+    if (!r.ok)
+      return {
+        plan_free_enabled: true,
+        plan_pro_enabled: true,
+        plan_enterprise_enabled: true,
+      };
+    return r.json();
+  },
+
   getUsage: async (): Promise<UsageSummary> => {
     const headers = await getAuthHeaders();
     const r = await fetch(`${API_BASE}/api/usage`, { headers });
@@ -403,3 +418,120 @@ export interface UsageSummary {
   limits: { resumes: number; generations: number; regenerations: number };
   usage: { resumes: number; generations: number; regenerations: number };
 }
+
+// ── Admin Types ──
+
+export interface AdminUser {
+  user_id: string;
+  email: string;
+  name: string;
+  plan: "free" | "pro" | "enterprise";
+  role: "user" | "admin";
+  extra_regenerations: number;
+  created_at: string;
+}
+
+export interface AdminStats {
+  total_users: number;
+  today_generations: number;
+  total_generations: number;
+  plan_distribution: { free: number; pro: number; enterprise: number };
+}
+
+export interface AdminSettings {
+  plan_free_enabled: boolean;
+  plan_pro_enabled: boolean;
+  plan_enterprise_enabled: boolean;
+}
+
+export interface AdminGeneration {
+  id: number;
+  user_id: string;
+  job_analysis: Record<string, unknown>;
+  answer: string;
+  is_regeneration: boolean;
+  created_at: string;
+}
+
+export interface AdminResume {
+  id: number;
+  user_id: string;
+  name: string;
+  created_at: string;
+}
+
+export const adminApi = {
+  getStats: async (): Promise<AdminStats> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/stats`, { headers });
+    if (!r.ok) throw new Error("통계 조회 실패");
+    return r.json();
+  },
+
+  listUsers: async (): Promise<AdminUser[]> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/users`, { headers });
+    if (!r.ok) throw new Error("유저 목록 조회 실패");
+    return r.json();
+  },
+
+  listGenerations: async (): Promise<AdminGeneration[]> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/generations`, { headers });
+    if (!r.ok) throw new Error("생성 이력 조회 실패");
+    return r.json();
+  },
+
+  listResumes: async (): Promise<AdminResume[]> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/resumes`, { headers });
+    if (!r.ok) throw new Error("이력서 이력 조회 실패");
+    return r.json();
+  },
+
+  getSettings: async (): Promise<AdminSettings> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/settings`, { headers });
+    if (!r.ok) throw new Error("설정 조회 실패");
+    return r.json();
+  },
+
+  updateSettings: async (settings: Partial<AdminSettings>): Promise<void> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/settings`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(settings),
+    });
+    if (!r.ok) throw new Error("설정 업데이트 실패");
+  },
+
+  changeUserPlan: async (
+    userId: string,
+    plan: "free" | "pro" | "enterprise",
+  ): Promise<void> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/users/${userId}/plan`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ plan }),
+    });
+    if (!r.ok) throw new Error("플랜 변경 실패");
+  },
+
+  setExtraRegenerations: async (
+    userId: string,
+    extra_regenerations: number,
+  ): Promise<void> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(
+      `${API_BASE}/api/admin/users/${userId}/extra-regenerations`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ extra_regenerations }),
+      },
+    );
+    if (!r.ok) throw new Error("추가 재생성 횟수 설정 실패");
+  },
+};

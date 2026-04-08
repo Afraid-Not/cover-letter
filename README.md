@@ -19,7 +19,8 @@
 - **작업 중 이탈 차단** — 생성/평가 중 브라우저 새로고침·뒤로가기 차단
 - **플랜 시스템** — Free / Pro / Enterprise 3단계 요금제, 월별 생성/재생성 쿼터 관리
 - **마이페이지** — 사용량 지표, 프로필 수정 (이름/희망직무/자기소개), 아바타 사진 업로드, 최근 프로젝트 목록
-- **요금제 페이지** — 플랜 비교 및 선택 UI
+- **요금제 페이지** — 플랜 비교 및 선택 UI; 관리자가 비활성화한 플랜은 버튼 자동 차단
+- **관리자 대시보드** — `/admin`; KPI 카드, 유저 관리 (플랜 변경·추가 재생성 부여), 생성/이력서 등록 이력, 플랜 구매 on/off 설정
 - **약관/개인정보처리방침** — `/terms`, `/privacy` 정적 페이지
 
 ## 기술 스택
@@ -152,7 +153,8 @@ cover-letter/
 │   ├── 002_companies_table.sql
 │   ├── 003_match_companies_function.sql
 │   ├── 004_add_plan_usage_tracking.sql
-│   └── 005_avatars_storage.sql         # 프로필 아바타 스토리지 + RLS 정책
+│   ├── 005_avatars_storage.sql         # 프로필 아바타 스토리지 + RLS 정책
+│   └── 007_admin.sql                   # profiles.role, extra_regenerations, app_settings 테이블
 ├── email-templates/          # Supabase Auth 이메일 템플릿
 ├── data/data.txt             # 합격 자소서 원본 (39건)
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
