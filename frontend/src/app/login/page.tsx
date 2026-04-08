@@ -12,6 +12,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const handleGoogleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
+  };
+
+  const handleKakaoLogin = () => {
+    setError("카카오 로그인은 현재 준비 중입니다.");
+  };
+
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
@@ -49,6 +60,8 @@ export default function LoginPage() {
       heroImageSrc="/login-page.png"
       onSignIn={handleSignIn}
       onCreateAccount={() => router.push("/signup")}
+      onGoogleLogin={handleGoogleLogin}
+      onKakaoLogin={handleKakaoLogin}
       loading={loading}
       error={error}
     />

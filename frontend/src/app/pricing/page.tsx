@@ -7,7 +7,9 @@ import { motion, type Variants } from "framer-motion";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
 
 const container: Variants = {
   hidden: { opacity: 0 },
@@ -95,7 +97,7 @@ const PLANS: {
     key: "enterprise",
     name: "Enterprise",
     sublabel: "팀 플랜",
-    price: "₩29,900",
+    price: "₩99,000",
     period: "/ 월",
     desc: "취업 컨설팅 팀을 위한 플랜",
     features: [
@@ -150,15 +152,43 @@ function PricingContent() {
   const handleSelect = async (key: PlanKey) => {
     if (!isOnboarding && key === currentPlan) return;
     setChanging(key);
+
+    if (key === "free") {
+      try {
+        await api.changePlan("free");
+        setCurrentPlan("free");
+        toast.success("Free 플랜으로 변경되었습니다.");
+        setTimeout(
+          () => router.push(isOnboarding ? "/welcome" : "/mypage"),
+          800,
+        );
+      } catch {
+        toast.error("플랜 변경에 실패했습니다.");
+      } finally {
+        setChanging(null);
+      }
+      return;
+    }
+
+    // 유료 플랜 — 토스 빌링키 발급
     try {
-      await api.changePlan(key);
-      setCurrentPlan(key);
-      const name = PLANS.find((p) => p.key === key)?.name;
-      toast.success(`${name} 플랜으로 시작합니다!`);
-      setTimeout(() => router.push(isOnboarding ? "/welcome" : "/mypage"), 800);
-    } catch {
-      toast.error("플랜 변경에 실패했습니다. 다시 시도해주세요.");
-    } finally {
+      const { data: session } = await supabase.auth.getSession();
+      const userId = session.session?.user?.id;
+      if (!userId) throw new Error("로그인이 필요합니다");
+
+      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY!;
+      const tossPayments = await loadTossPayments(clientKey);
+      const payment = tossPayments.payment({ customerKey: userId });
+
+      await payment.requestBillingAuth({
+        method: "CARD",
+        successUrl: `${window.location.origin}/payments/success?planKey=${key}${isOnboarding ? "&onboarding=1" : ""}`,
+        failUrl: `${window.location.origin}/payments/fail`,
+      });
+      // requestBillingAuth는 페이지 이동이므로 이후 코드 실행 안 됨
+    } catch (err) {
+      console.error("[Toss] 결제 오류:", err);
+      toast.error("결제 창을 불러오는데 실패했습니다.");
       setChanging(null);
     }
   };

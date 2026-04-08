@@ -49,7 +49,7 @@ export const Navbar = () => {
               alt="AURA"
               width={64}
               height={22}
-              style={{ width: 64, height: "auto" }}
+              style={{ width: "64px", height: "auto" }}
               priority
             />
           </Link>
