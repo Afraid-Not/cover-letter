@@ -145,9 +145,9 @@ def _get_user_id(token: str) -> str | None:
 # ── 플랜 제한 ──
 
 PLAN_LIMITS = {
-    "free":       {"resumes": 1,  "generations": 5,  "regenerations": 0},
-    "pro":        {"resumes": 10, "generations": -1, "regenerations": 5},   # -1 = unlimited
-    "enterprise": {"resumes": -1, "generations": -1, "regenerations": -1},
+    "free":       {"resumes": 1,  "generations": 5,  "regenerations": 0,  "company_searches": 0},
+    "pro":        {"resumes": 10, "generations": -1, "regenerations": 5,  "company_searches": -1},   # -1 = unlimited
+    "enterprise": {"resumes": -1, "generations": -1, "regenerations": -1, "company_searches": -1},
 }
 
 
@@ -264,8 +264,14 @@ async def generate(req: GenerateRequest, request: Request):
                         raise HTTPException(status_code=403, detail="PLAN_LIMIT|이번 달 재생성 횟수를 초과했습니다.")
             else:
                 if limits["generations"] > 0:
+                    try:
+                        extra_gen_res = sb_plan.table("profiles").select("extra_generations").eq("user_id", gen_user_id).single().execute()
+                        extra_gen = (extra_gen_res.data or {}).get("extra_generations", 0) or 0
+                    except Exception:
+                        extra_gen = 0
+                    effective_gen_limit = limits["generations"] + extra_gen
                     monthly = _count_monthly_usage(sb_plan, gen_user_id)
-                    if monthly["generations"] >= limits["generations"]:
+                    if monthly["generations"] >= effective_gen_limit:
                         raise HTTPException(status_code=403, detail="PLAN_LIMIT|이번 달 자소서 생성 횟수를 초과했습니다.")
 
     from src.analyzer import analyze_job_posting, build_search_query
@@ -322,9 +328,16 @@ async def evaluate(req: EvaluateRequest, request: Request):
     if token:
         user_id = _get_user_id(token)
         if user_id:
-            plan = _get_user_plan(_get_sb(token), user_id)
+            sb_eval = _get_sb(token)
+            plan = _get_user_plan(sb_eval, user_id)
             if plan == "free":
-                raise HTTPException(status_code=403, detail="PLAN_LIMIT|평가 기능은 Pro 플랜 이상에서 사용할 수 있습니다.")
+                try:
+                    extra_res = sb_eval.table("profiles").select("extra_regenerations").eq("user_id", user_id).single().execute()
+                    extra_regen = (extra_res.data or {}).get("extra_regenerations", 0) or 0
+                except Exception:
+                    extra_regen = 0
+                if extra_regen <= 0:
+                    raise HTTPException(status_code=403, detail="PLAN_LIMIT|평가 기능은 Pro 플랜 이상에서 사용할 수 있습니다.")
 
     result = await evaluate_all(req.question, req.answer, req.job_analysis)
     feedback = aggregate_feedback(result)
@@ -354,9 +367,16 @@ async def evaluate_stream_endpoint(req: EvaluateRequest, request: Request):
     if token:
         user_id = _get_user_id(token)
         if user_id:
-            plan = _get_user_plan(_get_sb(token), user_id)
+            sb_eval = _get_sb(token)
+            plan = _get_user_plan(sb_eval, user_id)
             if plan == "free":
-                raise HTTPException(status_code=403, detail="PLAN_LIMIT|평가 기능은 Pro 플랜 이상에서 사용할 수 있습니다.")
+                try:
+                    extra_res = sb_eval.table("profiles").select("extra_regenerations").eq("user_id", user_id).single().execute()
+                    extra_regen = (extra_res.data or {}).get("extra_regenerations", 0) or 0
+                except Exception:
+                    extra_regen = 0
+                if extra_regen <= 0:
+                    raise HTTPException(status_code=403, detail="PLAN_LIMIT|평가 기능은 Pro 플랜 이상에서 사용할 수 있습니다.")
 
     async def event_generator():
         from src.scoring_tables import compute_score_adjustment
@@ -647,6 +667,20 @@ async def research_project_company(project_id: int, request: Request):
     token = _extract_token(request)
     sb = _get_sb(token)
 
+    # free 플랜 쿼터 체크
+    user_id = _get_user_id(token) if token else None
+    if user_id:
+        plan = _get_user_plan(sb, user_id)
+        if plan == "free":
+            sb_admin = _get_sb()
+            try:
+                extra_res = sb_admin.table("profiles").select("extra_company_searches").eq("user_id", user_id).single().execute()
+                extra_searches = (extra_res.data or {}).get("extra_company_searches", 0) or 0
+            except Exception:
+                extra_searches = 0
+            if extra_searches <= 0:
+                raise HTTPException(status_code=403, detail="COMPANY_SEARCH_LIMIT|Free 플랜에서는 회사 자동 검색을 사용할 수 없습니다. 쿠폰으로 검색 크레딧을 추가하세요.")
+
     project_result = sb.table("generations").select("job_analysis, company_id").eq("id", project_id).single().execute()
     if not project_result.data:
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
@@ -663,9 +697,82 @@ async def research_project_company(project_id: int, request: Request):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"DB update failed: {e}")
 
+    # free 플랜: 크레딧 차감
+    if user_id and plan == "free":  # type: ignore[possibly-undefined]
+        try:
+            sb_admin.table("profiles").update({"extra_company_searches": extra_searches - 1}).eq("user_id", user_id).execute()  # type: ignore[possibly-undefined]
+        except Exception:
+            pass  # 차감 실패는 무시 (이미 검색은 완료됨)
+
     # 최신 프로젝트 데이터를 companies 조인해서 반환
     result = sb.table("generations").select("*, companies(*)").eq("id", project_id).single().execute()
     return result.data
+
+
+@app.get("/api/activity")
+async def list_activity(request: Request):
+    """최근 활동 통합 피드 — 프로젝트 생성 + 이력서 등록 + 재생성."""
+    token = _extract_token(request)
+    sb = _get_sb(token)
+    user_id = _get_user_id(token) if token else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+
+    events: list[dict] = []
+
+    # 프로젝트 생성
+    try:
+        rows = sb.table("generations").select(
+            "id, created_at, job_analysis, is_regeneration"
+        ).is_("project_id", "null").is_("deleted_at", "null").order("created_at", desc=True).limit(30).execute()
+        for r in (rows.data or []):
+            ja = r.get("job_analysis") or {}
+            events.append({
+                "type": "project",
+                "id": r["id"],
+                "label": ja.get("company") or "회사명 없음",
+                "sub": ja.get("position"),
+                "created_at": r["created_at"],
+            })
+    except Exception:
+        pass
+
+    # 이력서 등록
+    try:
+        rows = sb.table("resumes").select(
+            "id, name, created_at"
+        ).eq("user_id", user_id).order("created_at", desc=True).limit(30).execute()
+        for r in (rows.data or []):
+            events.append({
+                "type": "resume",
+                "id": r["id"],
+                "label": r.get("name") or "이력서",
+                "sub": None,
+                "created_at": r["created_at"],
+            })
+    except Exception:
+        pass
+
+    # 재생성 (versions)
+    try:
+        rows = sb.table("generations").select(
+            "id, created_at, job_analysis, project_id"
+        ).not_.is_("project_id", "null").eq("is_regeneration", True).order("created_at", desc=True).limit(30).execute()
+        # RLS가 user_id 필터링해줌
+        for r in (rows.data or []):
+            ja = r.get("job_analysis") or {}
+            events.append({
+                "type": "regeneration",
+                "id": r["project_id"],
+                "label": ja.get("company") or "재생성",
+                "sub": ja.get("position"),
+                "created_at": r["created_at"],
+            })
+    except Exception:
+        pass
+
+    events.sort(key=lambda e: e["created_at"], reverse=True)
+    return events[:30]
 
 
 @app.get("/api/projects")
@@ -675,8 +782,8 @@ async def list_projects(request: Request):
     sb = _get_sb(token)
     try:
         result = sb.table("generations").select(
-            "id, question, mode, char_limit, created_at, job_analysis, evaluation"
-        ).is_("project_id", "null").order("created_at", desc=True).limit(50).execute()
+            "id, question, mode, char_limit, resume_id, answer, created_at, job_analysis, evaluation"
+        ).is_("project_id", "null").is_("deleted_at", "null").order("created_at", desc=True).limit(50).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB query failed: {e}")
     return result.data
@@ -736,12 +843,14 @@ async def update_project(project_id: int, req: UpdateProjectRequest, request: Re
 
 @app.delete("/api/projects/{project_id}")
 async def delete_project(project_id: int, request: Request):
-    """프로젝트 삭제 — 자식 버전 먼저 삭제 후 루트 삭제."""
+    """프로젝트 소프트 삭제 — deleted_at 설정 (버전 행 유지로 월별 사용량 카운트 보존)."""
+    from datetime import datetime, timezone
     token = _extract_token(request)
     sb = _get_sb(token)
     try:
-        sb.table("generations").delete().eq("project_id", project_id).execute()
-        sb.table("generations").delete().eq("id", project_id).execute()
+        sb.table("generations").update(
+            {"deleted_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", project_id).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB delete failed: {e}")
     return {"ok": True}
@@ -790,6 +899,40 @@ async def create_project_version(project_id: int, req: CreateVersionRequest, req
     return version_result.data[0]
 
 
+@app.patch("/api/projects/{project_id}/versions/{version_id}")
+async def update_project_version(project_id: int, version_id: int, req: Request):
+    """버전의 평가 결과 업데이트 (평가하기 버튼 사용 시)."""
+    import json as json_lib
+    token = _extract_token(req)
+    user_id = _get_user_id(token) if token else None
+    sb = _get_sb(token)
+
+    body = await req.json()
+    evaluation = body.get("evaluation")
+
+    if evaluation is None:
+        raise HTTPException(status_code=400, detail="evaluation 필드가 필요합니다")
+
+    try:
+        # 버전 소유권 확인
+        ver = sb.table("generations").select("user_id, project_id").eq("id", version_id).single().execute()
+        if not ver.data:
+            raise HTTPException(status_code=404, detail="버전을 찾을 수 없습니다")
+        if user_id and ver.data.get("user_id") and ver.data["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="권한이 없습니다")
+
+        sb.table("generations").update({"evaluation": evaluation}).eq("id", version_id).execute()
+
+        # 루트 행도 최신 evaluation 으로 업데이트
+        sb.table("generations").update({"evaluation": evaluation}).eq("id", project_id).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"평가 저장 실패: {e}")
+
+    return {"ok": True}
+
+
 @app.get("/api/plan-settings")
 async def get_plan_settings():
     """플랜 활성화 여부 조회 (퍼블릭)."""
@@ -824,14 +967,22 @@ async def get_usage(request: Request):
     monthly = _count_monthly_usage(sb, user_id)
     resume_count = _count_resumes(sb, user_id)
 
-    # extra_regenerations 반영: 한도가 무제한(-1)이 아닌 경우에만 더함
+    # extra_regenerations / extra_generations / extra_company_searches 반영: 한도가 무제한(-1)이 아닌 경우에만 더함
     try:
-        extra_res = sb.table("profiles").select("extra_regenerations").eq("user_id", user_id).single().execute()
+        extra_res = sb.table("profiles").select("extra_regenerations, extra_generations, extra_company_searches").eq("user_id", user_id).single().execute()
         extra_regen = (extra_res.data or {}).get("extra_regenerations", 0) or 0
+        extra_gen = (extra_res.data or {}).get("extra_generations", 0) or 0
+        extra_company_searches = (extra_res.data or {}).get("extra_company_searches", 0) or 0
     except Exception:
         extra_regen = 0
+        extra_gen = 0
+        extra_company_searches = 0
     if limits["regenerations"] >= 0:
         limits["regenerations"] += extra_regen
+    if limits["generations"] >= 0:
+        limits["generations"] += extra_gen
+    if limits["company_searches"] >= 0:
+        limits["company_searches"] += extra_company_searches
 
     return {
         "plan": plan,
@@ -841,6 +992,7 @@ async def get_usage(request: Request):
             "generations": monthly["generations"],
             "regenerations": monthly["regenerations"],
         },
+        "extra_company_searches": extra_company_searches,
     }
 
 
@@ -944,6 +1096,27 @@ async def get_my_profile(request: Request):
     return result.data
 
 
+@app.delete("/api/account")
+async def delete_account(request: Request):
+    """현재 사용자 계정 삭제 (회원탈퇴)."""
+    import os
+    from supabase import create_client
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")
+    sb_admin = create_client(os.getenv("SUPABASE_URL", ""), service_key)
+    try:
+        sb_admin.auth.admin.delete_user(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"계정 삭제 실패: {e}")
+    return {"ok": True}
+
+
 # ── 관리자 (Admin) ──
 
 def _check_admin(token: str | None) -> str:
@@ -970,6 +1143,21 @@ class AdminChangePlanRequest(BaseModel):
 
 class AdminExtraRegenRequest(BaseModel):
     extra_regenerations: int  # 절댓값으로 설정
+
+
+class AdminExtraCompanySearchRequest(BaseModel):
+    extra_company_searches: int  # 절댓값으로 설정
+
+
+class AdminCouponCreateRequest(BaseModel):
+    code: str
+    bonus_generations: int = 5
+    bonus_regenerations: int = 25
+    bonus_company_searches: int = 0
+
+
+class CouponRedeemRequest(BaseModel):
+    code: str
 
 
 class AdminSettingsRequest(BaseModel):
@@ -1017,7 +1205,7 @@ async def admin_list_users(request: Request):
     supabase_url = os.getenv("SUPABASE_URL", "")
 
     try:
-        profiles_res = sb.table("profiles").select("user_id, name, plan, role, extra_regenerations, created_at").execute()
+        profiles_res = sb.table("profiles").select("user_id, name, plan, role, extra_regenerations, extra_company_searches, created_at").execute()
         profiles_map = {p["user_id"]: p for p in (profiles_res.data or [])}
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -1134,6 +1322,117 @@ async def admin_set_extra_regenerations(user_id: str, req: AdminExtraRegenReques
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"추가 재생성 횟수 설정 실패: {e}")
     return {"ok": True}
+
+
+@app.patch("/api/admin/users/{user_id}/extra-company-searches")
+async def admin_set_extra_company_searches(user_id: str, req: AdminExtraCompanySearchRequest, request: Request):
+    """관리자: 특정 유저의 추가 회사 검색 크레딧 설정."""
+    _check_admin(_extract_token(request))
+    if req.extra_company_searches < 0:
+        raise HTTPException(status_code=400, detail="음수는 허용되지 않습니다")
+    sb = _get_sb()
+    try:
+        sb.table("profiles").update({"extra_company_searches": req.extra_company_searches}).eq("user_id", user_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"추가 회사 검색 크레딧 설정 실패: {e}")
+    return {"ok": True}
+
+
+@app.post("/api/admin/coupons")
+async def admin_create_coupon(req: AdminCouponCreateRequest, request: Request):
+    """관리자: 쿠폰 코드 생성 (발급 후 7일 만료)."""
+    _check_admin(_extract_token(request))
+    code = req.code.strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="쿠폰 코드를 입력해주세요")
+    from datetime import datetime, timedelta, timezone
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    sb = _get_sb()
+    try:
+        sb.table("coupons").insert({
+            "code": code,
+            "expires_at": expires_at,
+            "bonus_generations": req.bonus_generations,
+            "bonus_regenerations": req.bonus_regenerations,
+            "bonus_company_searches": req.bonus_company_searches,
+        }).execute()
+    except Exception as e:
+        if "duplicate" in str(e).lower() or "unique" in str(e).lower() or "23505" in str(e):
+            raise HTTPException(status_code=409, detail="이미 존재하는 쿠폰 코드입니다")
+        raise HTTPException(status_code=500, detail=f"쿠폰 생성 실패: {e}")
+    return {"code": code, "expires_at": expires_at, "bonus_generations": req.bonus_generations, "bonus_regenerations": req.bonus_regenerations, "bonus_company_searches": req.bonus_company_searches}
+
+
+@app.get("/api/admin/coupons")
+async def admin_list_coupons(request: Request):
+    """관리자: 쿠폰 목록 조회."""
+    _check_admin(_extract_token(request))
+    sb = _get_sb()
+    try:
+        res = sb.table("coupons").select("*").order("created_at", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"쿠폰 목록 조회 실패: {e}")
+
+
+@app.post("/api/coupons/redeem")
+async def redeem_coupon(req: CouponRedeemRequest, request: Request):
+    """쿠폰 사용 — Enterprise 플랜은 사용 불가, 1인 1회."""
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    sb_user = _get_sb(token)
+    plan = _get_user_plan(sb_user, user_id)
+    if plan == "enterprise":
+        raise HTTPException(status_code=400, detail="Enterprise 플랜은 쿠폰을 사용할 수 없습니다")
+
+    code = req.code.strip().upper()
+    sb = _get_sb()  # service role — RLS bypass
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+
+    try:
+        coupon_res = sb.table("coupons").select("*").eq("code", code).single().execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="존재하지 않는 쿠폰 코드입니다")
+
+    coupon = coupon_res.data
+    if not coupon:
+        raise HTTPException(status_code=404, detail="존재하지 않는 쿠폰 코드입니다")
+    if coupon.get("used_by"):
+        raise HTTPException(status_code=409, detail="이미 사용된 쿠폰입니다")
+    if coupon["expires_at"] < now:
+        raise HTTPException(status_code=410, detail="만료된 쿠폰입니다")
+
+    # 쿠폰 사용 처리
+    try:
+        sb.table("coupons").update({"used_by": user_id, "used_at": now}).eq("code", code).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"쿠폰 처리 실패: {e}")
+
+    bonus_gen = coupon.get("bonus_generations", 5)
+    bonus_regen = coupon.get("bonus_regenerations", 25)
+    bonus_search = coupon.get("bonus_company_searches", 0)
+
+    try:
+        profile_res = sb.table("profiles").select("extra_generations, extra_regenerations, extra_company_searches").eq("user_id", user_id).single().execute()
+        current = profile_res.data or {}
+        new_gen = (current.get("extra_generations") or 0) + bonus_gen
+        new_regen = (current.get("extra_regenerations") or 0) + bonus_regen
+        new_search = (current.get("extra_company_searches") or 0) + bonus_search
+        sb.table("profiles").update({
+            "extra_generations": new_gen,
+            "extra_regenerations": new_regen,
+            "extra_company_searches": new_search,
+        }).eq("user_id", user_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"사용량 업데이트 실패: {e}")
+
+    return {"ok": True, "bonus_generations": bonus_gen, "bonus_regenerations": bonus_regen, "bonus_company_searches": bonus_search}
 
 
 # ── 결제 (Toss Payments) ──

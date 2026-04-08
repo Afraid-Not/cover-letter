@@ -160,6 +160,11 @@ export const api = {
     }).then((r) => r.json());
   },
 
+  listActivity: async (): Promise<ActivityEvent[]> => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/activity`, { headers }).then((r) => r.json());
+  },
+
   listProjects: async (): Promise<Project[]> => {
     const headers = await getAuthHeaders();
     return fetch(`${API_BASE}/api/projects`, { headers }).then((r) => r.json());
@@ -222,6 +227,23 @@ export const api = {
       throw new Error(err.detail || `버전 저장 실패 (${r.status})`);
     }
     return r.json();
+  },
+
+  updateVersion: async (
+    projectId: number,
+    versionId: number,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: { evaluation: any },
+  ): Promise<void> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(
+      `${API_BASE}/api/projects/${projectId}/versions/${versionId}`,
+      { method: "PATCH", headers, body: JSON.stringify(data) },
+    );
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || `평가 저장 실패 (${r.status})`);
+    }
   },
 
   getPlanSettings: async (): Promise<{
@@ -288,6 +310,22 @@ export const api = {
     return r.json();
   },
 
+  redeemCoupon: async (
+    code: string,
+  ): Promise<{ bonus_generations: number; bonus_regenerations: number }> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/coupons/redeem`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ code }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || "쿠폰 사용 실패");
+    }
+    return r.json();
+  },
+
   cancelSubscription: async () => {
     const headers = await getAuthHeaders();
     const r = await fetch(`${API_BASE}/api/payments/subscription`, {
@@ -323,6 +361,16 @@ export const api = {
       headers,
       body: JSON.stringify(data),
     }).then((r) => r.json());
+  },
+
+  deleteAccount: async () => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/account`, {
+      method: "DELETE",
+      headers,
+    });
+    if (!r.ok) throw new Error("계정 삭제 실패");
+    return r.json();
   },
 
   evaluateStream: async (
@@ -371,6 +419,14 @@ export const api = {
 };
 
 // ── 프로젝트 타입 ──
+
+export interface ActivityEvent {
+  type: "project" | "resume" | "regeneration";
+  id: number;
+  label: string;
+  sub: string | null;
+  created_at: string;
+}
 
 export interface ProjectVersion {
   id: number;
@@ -456,8 +512,14 @@ export interface EvalSummary {
 
 export interface UsageSummary {
   plan: "free" | "pro" | "enterprise";
-  limits: { resumes: number; generations: number; regenerations: number };
+  limits: {
+    resumes: number;
+    generations: number;
+    regenerations: number;
+    company_searches: number;
+  };
   usage: { resumes: number; generations: number; regenerations: number };
+  extra_company_searches: number;
 }
 
 // ── Admin Types ──
@@ -469,6 +531,7 @@ export interface AdminUser {
   plan: "free" | "pro" | "enterprise";
   role: "user" | "admin";
   extra_regenerations: number;
+  extra_company_searches: number;
   created_at: string;
 }
 
@@ -499,6 +562,17 @@ export interface AdminResume {
   user_id: string;
   name: string;
   created_at: string;
+}
+
+export interface AdminCoupon {
+  code: string;
+  created_at: string;
+  expires_at: string;
+  bonus_generations: number;
+  bonus_regenerations: number;
+  bonus_company_searches: number;
+  used_by: string | null;
+  used_at: string | null;
 }
 
 export const adminApi = {
@@ -574,5 +648,52 @@ export const adminApi = {
       },
     );
     if (!r.ok) throw new Error("추가 재생성 횟수 설정 실패");
+  },
+
+  setExtraCompanySearches: async (
+    userId: string,
+    extra_company_searches: number,
+  ): Promise<void> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(
+      `${API_BASE}/api/admin/users/${userId}/extra-company-searches`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ extra_company_searches }),
+      },
+    );
+    if (!r.ok) throw new Error("추가 회사 검색 크레딧 설정 실패");
+  },
+
+  listCoupons: async (): Promise<AdminCoupon[]> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/coupons`, { headers });
+    if (!r.ok) throw new Error("쿠폰 목록 조회 실패");
+    return r.json();
+  },
+
+  createCoupon: async (
+    code: string,
+    bonusGenerations: number,
+    bonusRegenerations: number,
+    bonusCompanySearches: number,
+  ): Promise<AdminCoupon> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/coupons`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        code,
+        bonus_generations: bonusGenerations,
+        bonus_regenerations: bonusRegenerations,
+        bonus_company_searches: bonusCompanySearches,
+      }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || "쿠폰 생성 실패");
+    }
+    return r.json();
   },
 };

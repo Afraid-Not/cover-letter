@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, type Variants } from "framer-motion";
 import {
@@ -14,9 +14,17 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api, type UsageSummary } from "@/lib/api";
+import { api, type UsageSummary, type ActivityEvent } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { supabase } from "@/lib/supabase";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   FileText,
   Repeat2,
@@ -28,6 +36,9 @@ import {
   Activity,
   TrendingUp,
   Camera,
+  Ticket,
+  AlertTriangle,
+  Search,
 } from "lucide-react";
 
 // ── Variants ──────────────────────────────────────────────────────────────────
@@ -66,11 +77,31 @@ const PLAN_LABELS: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
+const PerkItem = ({
+  children,
+  muted,
+}: {
+  children: React.ReactNode;
+  muted?: boolean;
+}) => (
+  <div
+    className={`flex items-center gap-1.5 text-xs ${muted ? "text-gray-300" : "text-gray-600"}`}
+  >
+    <span
+      className={`w-1 h-1 rounded-full flex-shrink-0 ${muted ? "bg-gray-300" : "bg-emerald-400"}`}
+    />
+    {children}
+  </div>
+);
+
 const formatDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("ko-KR", {
+  new Date(iso).toLocaleString("ko-KR", {
+    year: "numeric",
     month: "short",
     day: "numeric",
-    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
   });
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -117,15 +148,23 @@ const UsageBar = ({
   label,
   used,
   limit,
+  remaining,
 }: {
   label: string;
   used: number;
   limit: number;
+  remaining?: number;
 }) => {
   const unlimited = limit === -1;
-  const pct = unlimited ? 100 : Math.min((used / limit) * 100, 100);
-  const danger = !unlimited && pct >= 90;
-  const warning = !unlimited && pct >= 70;
+  const isRemainingMode = remaining !== undefined && !unlimited;
+  const pct = unlimited
+    ? 100
+    : isRemainingMode
+      ? Math.min(((remaining ?? 0) / Math.max(limit, 1)) * 100, 100)
+      : Math.min((used / limit) * 100, 100);
+  const danger = !unlimited && !isRemainingMode && pct >= 90;
+  const warning = !unlimited && !isRemainingMode && pct >= 70;
+  const remainingLow = isRemainingMode && remaining === 0;
 
   return (
     <div className="space-y-1.5">
@@ -133,14 +172,20 @@ const UsageBar = ({
         <span className="text-gray-600">{label}</span>
         <span
           className={`text-xs font-semibold ${
-            danger
+            remainingLow
               ? "text-red-500"
-              : warning
-                ? "text-amber-500"
-                : "text-gray-400"
+              : danger
+                ? "text-red-500"
+                : warning
+                  ? "text-amber-500"
+                  : "text-gray-400"
           }`}
         >
-          {unlimited ? "무제한" : `${used} / ${limit}`}
+          {unlimited
+            ? "무제한"
+            : isRemainingMode
+              ? `${remaining} / ${limit}`
+              : `${used} / ${limit}`}
         </span>
       </div>
       <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
@@ -148,11 +193,13 @@ const UsageBar = ({
           className={`h-full rounded-full ${
             unlimited
               ? "bg-gradient-to-r from-violet-300 to-violet-400"
-              : danger
+              : remainingLow
                 ? "bg-red-400"
-                : warning
-                  ? "bg-amber-400"
-                  : "bg-violet-400"
+                : danger
+                  ? "bg-red-400"
+                  : warning
+                    ? "bg-amber-400"
+                    : "bg-violet-400"
           }`}
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}
@@ -192,12 +239,7 @@ const MyPage = () => {
   } | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [resumeCount, setResumeCount] = useState<number | null>(null);
-  const [recentProjects, setRecentProjects] = useState<Array<{
-    id: number;
-    job_analysis?: { company?: string; position?: string };
-    created_at: string;
-    status?: string;
-  }> | null>(null);
+  const [activity, setActivity] = useState<ActivityEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Edit state
@@ -209,15 +251,28 @@ const MyPage = () => {
   const [editBio, setEditBio] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Delete account modal state
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Coupon modal state
+  const [couponOpen, setCouponOpen] = useState(false);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponResult, setCouponResult] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const [profileRes, usageRes, resumesRes, projectsRes] =
+      const [profileRes, usageRes, resumesRes, activityRes] =
         await Promise.allSettled([
           api.getProfile(),
           api.getUsage(),
           api.listResumes(),
-          api.listProjects(),
+          api.listActivity(),
         ]);
       if (profileRes.status === "fulfilled") setProfile(profileRes.value);
       if (usageRes.status === "fulfilled") setUsage(usageRes.value);
@@ -226,18 +281,10 @@ const MyPage = () => {
           Array.isArray(resumesRes.value) ? resumesRes.value.length : 0,
         );
       if (
-        projectsRes.status === "fulfilled" &&
-        Array.isArray(projectsRes.value)
+        activityRes.status === "fulfilled" &&
+        Array.isArray(activityRes.value)
       ) {
-        setRecentProjects(
-          [...projectsRes.value]
-            .sort(
-              (a, b) =>
-                new Date(b.created_at).getTime() -
-                new Date(a.created_at).getTime(),
-            )
-            .slice(0, 8),
-        );
+        setActivity(activityRes.value);
       }
       setLoading(false);
     };
@@ -289,6 +336,38 @@ const MyPage = () => {
       setEditing(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRedeemCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponLoading(true);
+    setCouponResult(null);
+    try {
+      const res = await api.redeemCoupon(couponCode.trim());
+      setCouponResult({
+        type: "success",
+        message: `쿠폰 적용 완료! 생성 +${res.bonus_generations}회, 재생성 +${res.bonus_regenerations}회가 추가되었습니다.`,
+      });
+      setCouponCode("");
+      const updated = await api.getUsage();
+      setUsage(updated);
+    } catch (e) {
+      setCouponResult({ type: "error", message: (e as Error).message });
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      await api.deleteAccount();
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch {
+      setDeleting(false);
+      setDeleteOpen(false);
     }
   };
 
@@ -344,6 +423,107 @@ const MyPage = () => {
                   icon={User}
                   accent="text-blue-600"
                 />
+                {/* 플랜 카드 — lg에서 2칸×2행 차지 */}
+                <Card className="bg-white border border-gray-200 shadow-sm flex flex-col col-span-2 lg:row-span-2">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-500">
+                      현재 플랜
+                    </CardTitle>
+                    <Crown className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent className="flex-1 flex flex-col">
+                    <div className="flex gap-6 flex-1">
+                      {/* 좌: 플랜명 + 업그레이드 버튼 */}
+                      <div className="flex flex-col justify-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                          </span>
+                          <span
+                            className={`text-3xl font-bold ${
+                              plan === "pro"
+                                ? "text-violet-600"
+                                : plan === "enterprise"
+                                  ? "text-amber-600"
+                                  : "text-gray-700"
+                            }`}
+                          >
+                            {PLAN_LABELS[plan]}
+                          </span>
+                        </div>
+                        {plan !== "enterprise" && (
+                          <button
+                            onClick={() => router.push("/pricing")}
+                            className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 transition-colors"
+                          >
+                            플랜 업그레이드 <ArrowRight className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                      {/* 우: 플랜 비교 */}
+                      <div className="flex-1 border-l border-gray-100 pl-6 flex flex-col justify-center gap-2">
+                        {plan !== "enterprise" && (
+                          <>
+                            {/* 헤더 + 비교 행: 동일한 grid 컬럼 구조 */}
+                            <div className="grid grid-cols-[1fr_5rem_5rem] gap-x-4 gap-y-1.5 items-center">
+                              {/* 헤더 */}
+                              <span />
+                              <span className="text-sm font-semibold text-gray-400 text-center">
+                                {PLAN_LABELS[plan]}
+                              </span>
+                              <span
+                                className={`text-sm font-semibold text-center ${plan === "free" ? "text-violet-600" : "text-amber-600"}`}
+                              >
+                                {plan === "free" ? "Pro" : "Enterprise"}
+                              </span>
+                              {/* 비교 행 */}
+                              {(plan === "free"
+                                ? [
+                                    ["이력서 등록", "최대 1개", "최대 10개"],
+                                    ["자소서 생성", "월 5회", "무제한"],
+                                    ["재생성", "불가", "월 5회"],
+                                    ["회사 자동 검색", "불가", "무제한"],
+                                  ]
+                                : [
+                                    ["이력서 등록", "최대 10개", "무제한"],
+                                    ["자소서 생성", "무제한", "무제한"],
+                                    ["재생성", "월 5회", "무제한"],
+                                    ["회사 자동 검색", "무제한", "무제한"],
+                                  ]
+                              ).map(([label, current, next]) => (
+                                <React.Fragment key={label}>
+                                  <span className="text-sm text-gray-500">
+                                    {label}
+                                  </span>
+                                  <span className="text-sm text-gray-400 text-center">
+                                    {current}
+                                  </span>
+                                  <span
+                                    className={`text-sm font-medium text-center ${plan === "free" ? "text-violet-600" : "text-amber-600"}`}
+                                  >
+                                    {next}
+                                  </span>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                        {plan === "enterprise" && (
+                          <>
+                            <p className="text-xs font-semibold text-amber-600 mb-1">
+                              Enterprise 혜택
+                            </p>
+                            <PerkItem>이력서 무제한 등록</PerkItem>
+                            <PerkItem>자소서 생성 무제한</PerkItem>
+                            <PerkItem>재생성 무제한</PerkItem>
+                            <PerkItem>회사 자동 검색 무제한</PerkItem>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
                 <MetricCard
                   title="재생성"
                   value={usage?.usage.regenerations ?? 0}
@@ -356,36 +536,25 @@ const MyPage = () => {
                   icon={Repeat2}
                   accent="text-emerald-600"
                 />
-                <Card className="bg-white border border-gray-200 shadow-sm">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-500">
-                      현재 플랜
-                    </CardTitle>
-                    <Crown className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="relative flex h-2.5 w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                      </span>
-                      <span
-                        className={`text-2xl font-bold ${
-                          plan === "pro"
-                            ? "text-violet-600"
-                            : plan === "enterprise"
-                              ? "text-amber-600"
-                              : "text-gray-700"
-                        }`}
-                      >
-                        {PLAN_LABELS[plan]}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      구독중인 플랜
-                    </p>
-                  </CardContent>
-                </Card>
+                {usage && usage.plan === "free" ? (
+                  <MetricCard
+                    title="회사 검색"
+                    value={usage.extra_company_searches ?? 0}
+                    suffix={`/ ${usage.limits.company_searches}`}
+                    description="남은 검색 횟수"
+                    icon={Search}
+                    accent="text-sky-600"
+                  />
+                ) : (
+                  <MetricCard
+                    title="회사 검색"
+                    value={usage.extra_company_searches ?? 0}
+                    suffix="회"
+                    description="무제한 사용 가능"
+                    icon={Search}
+                    accent="text-sky-600"
+                  />
+                )}
               </>
             )}
           </motion.div>
@@ -602,6 +771,12 @@ const MyPage = () => {
                         used={usage.usage.regenerations}
                         limit={usage.limits.regenerations}
                       />
+                      <UsageBar
+                        label="회사 검색"
+                        used={0}
+                        limit={usage.limits.company_searches}
+                        remaining={usage.extra_company_searches ?? 0}
+                      />
                     </>
                   ) : (
                     <p className="text-sm text-gray-400">
@@ -609,12 +784,23 @@ const MyPage = () => {
                     </p>
                   )}
                 </CardContent>
-                <CardFooter className="mt-auto pt-2 pb-4 px-6 border-t border-gray-100 bg-transparent">
+                <CardFooter className="mt-auto pt-2 pb-4 px-6 border-t border-gray-100 bg-transparent flex items-center justify-between">
                   <button
                     onClick={() => router.push("/pricing")}
                     className="text-xs text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1 transition-colors"
                   >
                     플랜 업그레이드 <ArrowRight className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCouponOpen(true);
+                      setCouponResult(null);
+                      setCouponCode("");
+                    }}
+                    className="text-xs text-emerald-600 hover:text-emerald-800 font-medium flex items-center gap-1 transition-colors"
+                  >
+                    <Ticket className="h-3 w-3" />
+                    쿠폰 등록
                   </button>
                 </CardFooter>
               </Card>
@@ -634,34 +820,73 @@ const MyPage = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <ScrollArea className="h-[280px]">
+                  <ScrollArea className="h-[320px]">
                     <div className="divide-y divide-gray-100">
-                      {!recentProjects || recentProjects.length === 0 ? (
+                      {!activity || activity.length === 0 ? (
                         <p className="p-6 text-center text-sm text-gray-400">
-                          아직 작성한 자소서가 없습니다.
+                          아직 활동 내역이 없습니다.
                         </p>
                       ) : (
-                        recentProjects.map((p) => {
-                          const company =
-                            p.job_analysis?.company ?? "회사명 없음";
-                          const position = p.job_analysis?.position;
+                        activity.map((evt, i) => {
+                          const isProject = evt.type === "project";
+                          const isResume = evt.type === "resume";
+                          const isRegen = evt.type === "regeneration";
+                          const iconBg = isResume
+                            ? "bg-blue-50"
+                            : isRegen
+                              ? "bg-emerald-50"
+                              : "bg-violet-50";
+                          const iconColor = isResume
+                            ? "text-blue-500"
+                            : isRegen
+                              ? "text-emerald-500"
+                              : "text-violet-500";
+                          const badge = isResume
+                            ? "이력서 등록"
+                            : isRegen
+                              ? "재생성"
+                              : "프로젝트";
+                          const badgeColor = isResume
+                            ? "bg-blue-50 text-blue-600"
+                            : isRegen
+                              ? "bg-emerald-50 text-emerald-600"
+                              : "bg-violet-50 text-violet-600";
+                          const IconComp = isResume
+                            ? User
+                            : isRegen
+                              ? Repeat2
+                              : FileText;
+                          const clickable = isProject || isRegen;
                           return (
                             <div
-                              key={p.id}
-                              className="flex items-center justify-between px-6 py-3.5 hover:bg-gray-50 transition-colors cursor-pointer"
-                              onClick={() => router.push(`/projects/${p.id}`)}
+                              key={`${evt.type}-${evt.id}-${i}`}
+                              className={`flex items-center justify-between px-6 py-3.5 transition-colors ${clickable ? "hover:bg-gray-50 cursor-pointer" : ""}`}
+                              onClick={() =>
+                                clickable && router.push(`/projects/${evt.id}`)
+                              }
                             >
                               <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
-                                  <FileText className="h-4 w-4 text-violet-500" />
+                                <div
+                                  className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}
+                                >
+                                  <IconComp
+                                    className={`h-4 w-4 ${iconColor}`}
+                                  />
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="text-sm font-medium text-gray-800 truncate">
-                                    {company}
-                                  </p>
-                                  {position && (
-                                    <p className="text-xs text-gray-400 truncate">
-                                      {position}
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badgeColor}`}
+                                    >
+                                      {badge}
+                                    </span>
+                                    <p className="text-sm font-medium text-gray-800 truncate">
+                                      {evt.label}
+                                    </p>
+                                  </div>
+                                  {evt.sub && (
+                                    <p className="text-xs text-gray-400 truncate mt-0.5">
+                                      {evt.sub}
                                     </p>
                                   )}
                                 </div>
@@ -669,7 +894,7 @@ const MyPage = () => {
                               <div className="flex items-center gap-2 shrink-0 ml-3">
                                 <span className="text-xs text-gray-400 flex items-center gap-1">
                                   <Clock className="h-3 w-3" />
-                                  {formatDate(p.created_at)}
+                                  {formatDate(evt.created_at)}
                                 </span>
                               </div>
                             </div>
@@ -690,8 +915,101 @@ const MyPage = () => {
               </Card>
             )}
           </motion.div>
+
+          {/* ── 회원탈퇴 ── */}
+          <motion.div variants={item} className="flex justify-end">
+            <button
+              onClick={() => setDeleteOpen(true)}
+              className="text-sm font-medium text-black bg-red-400 hover:bg-red-500 transition-colors px-4 py-2 rounded-md"
+            >
+              회원탈퇴
+            </button>
+          </motion.div>
         </motion.div>
       </div>
+
+      {/* ── 회원탈퇴 확인 모달 ── */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-4 w-4" />
+              회원탈퇴
+            </DialogTitle>
+            <DialogDescription className="pt-1">
+              탈퇴하시겠습니까?
+              <br />
+              모든 데이터(이력서, 자소서 생성 이력)가 <strong>영구 삭제</strong>
+              되며 복구할 수 없습니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleting}
+            >
+              취소
+            </Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleDeleteAccount}
+              disabled={deleting}
+            >
+              {deleting ? "탈퇴 중..." : "탈퇴하기"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 쿠폰 등록 모달 ── */}
+      <Dialog
+        open={couponOpen}
+        onOpenChange={(o) => {
+          setCouponOpen(o);
+          if (!o) setCouponResult(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Ticket className="h-4 w-4 text-emerald-500" />
+              쿠폰 등록
+            </DialogTitle>
+            <DialogDescription>
+              쿠폰 코드를 입력하면 생성 +5회, 재생성 +25회가 추가됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 pt-2">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === "Enter" && handleRedeemCoupon()}
+                placeholder="쿠폰 코드 입력"
+                disabled={couponLoading}
+                className="flex-1 h-10 rounded-md border border-gray-200 bg-gray-50 px-3 text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-400/40 disabled:opacity-50"
+              />
+              <Button
+                onClick={handleRedeemCoupon}
+                disabled={couponLoading || !couponCode.trim()}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4"
+              >
+                {couponLoading ? "확인 중..." : "적용"}
+              </Button>
+            </div>
+            {couponResult && (
+              <p
+                className={`text-sm rounded-md px-3 py-2 ${couponResult.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}
+              >
+                {couponResult.message}
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
