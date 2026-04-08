@@ -1,5 +1,85 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Eye, EyeOff } from "lucide-react";
+
+// ── Particle canvas ───────────────────────────────────────────────────────────
+
+const ParticleCanvas = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let w = canvas.offsetWidth;
+    let h = canvas.offsetHeight;
+    canvas.width = w;
+    canvas.height = h;
+
+    const particles = Array.from({ length: 50 }, () => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      r: Math.random() * 1.6 + 0.6,
+      hue: 265 + Math.random() * 45,
+      opacity: Math.random() * 0.4 + 0.15,
+    }));
+
+    let animId: number;
+
+    const tick = () => {
+      ctx.clearRect(0, 0, w, h);
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0 || p.x > w) p.vx *= -1;
+        if (p.y < 0 || p.y > h) p.vy *= -1;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${p.hue}, 65%, 72%, ${p.opacity})`;
+        ctx.fill();
+
+        for (let j = i + 1; j < particles.length; j++) {
+          const q = particles[j];
+          const dx = p.x - q.x;
+          const dy = p.y - q.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 120) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(q.x, q.y);
+            ctx.strokeStyle = `hsla(278, 60%, 68%, ${(1 - dist / 120) * 0.1})`;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
+      }
+      animId = requestAnimationFrame(tick);
+    };
+
+    tick();
+
+    const onResize = () => {
+      w = canvas.offsetWidth;
+      h = canvas.offsetHeight;
+      canvas.width = w;
+      canvas.height = h;
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />;
+};
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
@@ -33,6 +113,8 @@ const KakaoIcon = () => (
   </svg>
 );
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 export interface Testimonial {
   avatarSrc: string;
   name: string;
@@ -60,36 +142,13 @@ const GlassInputWrapper = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-const TestimonialCard = ({
-  testimonial,
-  delay,
-}: {
-  testimonial: Testimonial;
-  delay: string;
-}) => (
-  <div
-    className={`signin-testimonial ${delay} flex items-start gap-3 rounded-3xl bg-card/40 backdrop-blur-xl border border-white/10 p-5 w-64`}
-  >
-    <img
-      src={testimonial.avatarSrc}
-      className="h-10 w-10 object-cover rounded-2xl"
-      alt="avatar"
-    />
-    <div className="text-sm leading-snug">
-      <p className="flex items-center gap-1 font-medium">{testimonial.name}</p>
-      <p className="text-muted-foreground">{testimonial.handle}</p>
-      <p className="mt-1 text-foreground/80">{testimonial.text}</p>
-    </div>
-  </div>
-);
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export const SignInPage: React.FC<SignInPageProps> = ({
   title = (
     <span className="font-light text-foreground tracking-tighter">Welcome</span>
   ),
-  description = "계정에 로그인하고 여정을 이어가세요",
-  heroImageSrc,
-  testimonials = [],
+  description = "자소서 완성, 여기서 다시 시작하세요",
   onSignIn,
   onResetPassword,
   onCreateAccount,
@@ -101,166 +160,139 @@ export const SignInPage: React.FC<SignInPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
 
   return (
-    <div className="h-[100dvh] flex flex-col md:flex-row w-[100dvw]">
-      {/* Left: sign-in form */}
-      <section className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-md">
-          <div className="flex flex-col gap-6">
-            <h1 className="signin-element signin-delay-100 text-4xl md:text-5xl font-semibold leading-tight">
-              {title}
-            </h1>
-            <p className="signin-element signin-delay-200 text-muted-foreground">
+    <div className="min-h-screen w-full bg-gradient-to-br from-[#0b0713] via-[#110a1e] to-[#0a0610] flex items-center justify-center p-4 md:p-8">
+      {/* Floating card */}
+      <div className="w-full max-w-6xl flex rounded-2xl overflow-hidden border border-border shadow-2xl h-[620px]">
+        {/* Left: form */}
+        <section className="w-1/2 flex flex-col p-8 md:p-10 bg-card">
+          {/* Logo — pinned at top, same position as signup */}
+          <div className="signin-element signin-delay-100 flex flex-col items-center text-center mb-6">
+            {title}
+            <p className="signin-element signin-delay-200 text-foreground font-semibold text-sm mt-2">
               {description}
             </p>
-
-            <form className="space-y-5" onSubmit={onSignIn}>
-              <div className="signin-element signin-delay-300">
-                <label className="text-sm font-medium text-muted-foreground">
-                  이메일
-                </label>
-                <GlassInputWrapper>
-                  <input
-                    name="email"
-                    type="email"
-                    placeholder="이메일 주소를 입력하세요"
-                    className="w-full bg-transparent text-sm p-4 rounded-2xl focus:outline-none"
-                    required
-                  />
-                </GlassInputWrapper>
-              </div>
-
-              <div className="signin-element signin-delay-400">
-                <label className="text-sm font-medium text-muted-foreground">
-                  비밀번호
-                </label>
-                <GlassInputWrapper>
-                  <div className="relative">
+          </div>
+          <div className="flex-1 flex items-center justify-center">
+            <div className="w-full max-w-sm">
+              <form className="space-y-4" onSubmit={onSignIn}>
+                <div className="signin-element signin-delay-300">
+                  <label className="text-sm font-medium text-muted-foreground">
+                    이메일
+                  </label>
+                  <GlassInputWrapper>
                     <input
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="비밀번호를 입력하세요"
-                      className="w-full bg-transparent text-sm p-4 pr-12 rounded-2xl focus:outline-none"
+                      name="email"
+                      type="email"
+                      placeholder="이메일 주소를 입력하세요"
+                      className="w-full bg-transparent text-sm py-3 px-4 rounded-2xl focus:outline-none"
                       required
-                      minLength={6}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-3 flex items-center"
+                  </GlassInputWrapper>
+                </div>
+
+                <div className="signin-element signin-delay-400">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-muted-foreground">
+                      비밀번호
+                    </label>
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onResetPassword?.();
+                      }}
+                      className="text-xs hover:underline text-primary transition-colors"
                     >
-                      {showPassword ? (
-                        <EyeOff className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
-                      ) : (
-                        <Eye className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
-                      )}
-                    </button>
+                      비밀번호 재설정
+                    </a>
                   </div>
-                </GlassInputWrapper>
+                  <GlassInputWrapper>
+                    <div className="relative">
+                      <input
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="비밀번호를 입력하세요"
+                        className="w-full bg-transparent text-sm py-3 px-4 pr-12 rounded-2xl focus:outline-none"
+                        required
+                        minLength={6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-3 flex items-center"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
+                        ) : (
+                          <Eye className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
+                        )}
+                      </button>
+                    </div>
+                  </GlassInputWrapper>
+                </div>
+
+                {error && (
+                  <p className="signin-element text-xs text-rose-500">
+                    {error}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="signin-element signin-delay-600 w-full rounded-2xl bg-primary py-3 font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60 !mt-6"
+                >
+                  {loading ? "처리 중..." : "로그인"}
+                </button>
+              </form>
+
+              <div className="signin-element signin-delay-700 flex items-center gap-3 my-5">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-muted-foreground">또는</span>
+                <div className="flex-1 h-px bg-border" />
               </div>
 
-              {error && (
-                <p className="signin-element text-xs text-rose-500">{error}</p>
-              )}
+              <div className="signin-element signin-delay-800 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => onGoogleLogin?.()}
+                  className="rounded-2xl border border-border bg-foreground/5 py-2.5 hover:bg-foreground/10 transition-colors flex items-center justify-center"
+                >
+                  <GoogleIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onKakaoLogin?.()}
+                  className="rounded-2xl py-2.5 transition-colors flex items-center justify-center bg-[#FEE500] hover:bg-[#FDD800]"
+                >
+                  <KakaoIcon />
+                </button>
+              </div>
 
-              <div className="signin-element signin-delay-500 flex items-center justify-end text-sm">
+              <p className="signin-element signin-delay-900 text-center text-sm text-muted-foreground mt-5">
+                계정이 없나요?{" "}
                 <a
                   href="#"
                   onClick={(e) => {
                     e.preventDefault();
-                    onResetPassword?.();
+                    onCreateAccount?.();
                   }}
-                  className="hover:underline text-primary transition-colors"
+                  className="text-primary hover:underline transition-colors"
                 >
-                  비밀번호 재설정
+                  회원가입
                 </a>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="signin-element signin-delay-600 w-full rounded-2xl bg-primary py-4 font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
-              >
-                {loading ? "처리 중..." : "로그인"}
-              </button>
-            </form>
-
-            {/* Divider */}
-            <div className="signin-element signin-delay-700 flex items-center gap-3">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-xs text-muted-foreground">또는</span>
-              <div className="flex-1 h-px bg-border" />
+              </p>
             </div>
-
-            {/* Social login buttons */}
-            <div className="signin-element signin-delay-800 space-y-3">
-              <button
-                type="button"
-                onClick={() => onGoogleLogin?.()}
-                className="w-full rounded-2xl border border-border bg-foreground/5 py-3.5 text-sm font-medium hover:bg-foreground/10 transition-colors flex items-center justify-center gap-3"
-              >
-                <GoogleIcon />
-                Google로 계속하기
-              </button>
-              <button
-                type="button"
-                onClick={() => onKakaoLogin?.()}
-                className="w-full rounded-2xl py-3.5 text-sm font-medium transition-colors flex items-center justify-center gap-3 bg-[#FEE500] text-[#3C1E1E] hover:bg-[#FDD800]"
-              >
-                <KakaoIcon />
-                카카오로 계속하기
-              </button>
-            </div>
-
-            <p className="signin-element signin-delay-900 text-center text-sm text-muted-foreground">
-              계정이 없나요?{" "}
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  onCreateAccount?.();
-                }}
-                className="text-primary hover:underline transition-colors"
-              >
-                회원가입
-              </a>
-            </p>
           </div>
-        </div>
-      </section>
-
-      {/* Right: hero image + testimonials */}
-      {heroImageSrc && (
-        <section className="hidden md:block flex-1 relative p-4">
-          <div
-            className="signin-slide-right signin-delay-300 absolute inset-4 rounded-3xl bg-cover bg-center"
-            style={{ backgroundImage: `url(${heroImageSrc})` }}
-          />
-          {testimonials.length > 0 && (
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 px-8 w-full justify-center">
-              <TestimonialCard
-                testimonial={testimonials[0]}
-                delay="signin-delay-1000"
-              />
-              {testimonials[1] && (
-                <div className="hidden xl:flex">
-                  <TestimonialCard
-                    testimonial={testimonials[1]}
-                    delay="signin-delay-1200"
-                  />
-                </div>
-              )}
-              {testimonials[2] && (
-                <div className="hidden 2xl:flex">
-                  <TestimonialCard
-                    testimonial={testimonials[2]}
-                    delay="signin-delay-1400"
-                  />
-                </div>
-              )}
-            </div>
-          )}
         </section>
-      )}
+
+        {/* Right: visual panel */}
+        <section className="hidden md:flex w-1/2 relative overflow-hidden bg-[#0d0a14]">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#0d0a14] via-[#120c1e] to-[#1a0f2e]" />
+          <ParticleCanvas />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_50%,rgba(139,92,246,0.13),transparent)]" />
+        </section>
+      </div>
     </div>
   );
 };

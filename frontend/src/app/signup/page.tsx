@@ -5,50 +5,39 @@ import { useRouter } from "next/navigation";
 import { SignUpPage, type SignUpFormData } from "@/components/ui/sign-up";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
-import { toast } from "sonner";
-
 export default function SignupPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleGoogleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
-    });
-  };
-
-  const handleKakaoLogin = () => {
-    toast.info("카카오 로그인은 현재 준비 중입니다.");
-  };
-
   const handleSignUp = async (form: SignUpFormData) => {
     setError("");
     setLoading(true);
     try {
-      // 1. Supabase Auth 회원가입
       const { data, error: authError } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,
       });
       if (authError) throw authError;
       if (!data.session) {
-        // 이메일 인증이 필요한 경우
         throw new Error(
           "가입 확인 이메일을 발송했습니다. 이메일을 확인해주세요.",
         );
       }
 
-      // 2. 프로필 저장 (백엔드 → 임베딩 생성 + Supabase profiles 저장)
+      const yearsMap: Record<string, number> = {
+        "경력 1년": 1,
+        "경력 2년": 2,
+        "경력 3년 이상": 3,
+      };
+
       await api.saveProfile({
         name: form.name,
         phone: form.phone || undefined,
+        birth_date: form.birthDate || undefined,
         job_title: form.jobTitle || undefined,
         job_seeker_status: form.jobSeekerStatus || undefined,
-        years_of_experience: form.yearsOfExperience
-          ? parseInt(form.yearsOfExperience)
-          : undefined,
+        years_of_experience: yearsMap[form.jobSeekerStatus],
         education_level: form.educationLevel || undefined,
         education_major: form.educationMajor || undefined,
         agreed_to_terms: form.agreedToTerms,
@@ -64,11 +53,8 @@ export default function SignupPage() {
 
   return (
     <SignUpPage
-      heroImageSrc="/login-page.png"
       onSignUp={handleSignUp}
       onSignIn={() => router.push("/login")}
-      onGoogleLogin={handleGoogleLogin}
-      onKakaoLogin={handleKakaoLogin}
       loading={loading}
       error={error}
     />

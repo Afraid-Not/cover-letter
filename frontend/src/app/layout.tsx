@@ -27,7 +27,16 @@ const nanumMyeongjo = Nanum_Myeongjo({
 });
 
 export const metadata: Metadata = {
-  title: "AURA | AI로 작성하는 나만의 이야기",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "https://hapgyeok.com",
+  ),
+  title: "합격 | AI로 작성하는 나만의 이야기",
+  icons: {
+    icon: "/favicon.svg",
+  },
+  openGraph: {
+    images: ["/og.png"],
+  },
   description: "합격 자소서 기반 RAG 자소서 생성 + LLM-as-a-Judge 평가",
 };
 

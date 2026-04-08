@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import {
   Eye,
@@ -10,44 +10,90 @@ import {
   Loader2,
 } from "lucide-react";
 
-const GoogleIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
-    <path
-      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-      fill="#4285F4"
-    />
-    <path
-      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-      fill="#34A853"
-    />
-    <path
-      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-      fill="#FBBC05"
-    />
-    <path
-      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-      fill="#EA4335"
-    />
-  </svg>
-);
+// ── Particle canvas ───────────────────────────────────────────────────────────
 
-const KakaoIcon = () => (
-  <svg
-    viewBox="0 0 24 24"
-    className="w-5 h-5"
-    aria-hidden="true"
-    fill="#3C1E1E"
-  >
-    <path d="M12 3C6.477 3 2 6.477 2 10.917c0 2.874 1.693 5.394 4.24 6.917l-.978 3.63a.27.27 0 0 0 .411.3L9.87 19.23A11.8 11.8 0 0 0 12 19.5c5.523 0 10-3.477 10-7.583S17.523 3 12 3z" />
-  </svg>
-);
+const ParticleCanvas = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let w = canvas.offsetWidth;
+    let h = canvas.offsetHeight;
+    canvas.width = w;
+    canvas.height = h;
+
+    const particles = Array.from({ length: 50 }, () => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      r: Math.random() * 1.6 + 0.6,
+      hue: 265 + Math.random() * 45,
+      opacity: Math.random() * 0.4 + 0.15,
+    }));
+
+    let animId: number;
+
+    const tick = () => {
+      ctx.clearRect(0, 0, w, h);
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0 || p.x > w) p.vx *= -1;
+        if (p.y < 0 || p.y > h) p.vy *= -1;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${p.hue}, 65%, 72%, ${p.opacity})`;
+        ctx.fill();
+
+        for (let j = i + 1; j < particles.length; j++) {
+          const q = particles[j];
+          const dx = p.x - q.x;
+          const dy = p.y - q.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 120) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(q.x, q.y);
+            ctx.strokeStyle = `hsla(278, 60%, 68%, ${(1 - dist / 120) * 0.1})`;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
+      }
+      animId = requestAnimationFrame(tick);
+    };
+
+    tick();
+
+    const onResize = () => {
+      w = canvas.offsetWidth;
+      h = canvas.offsetHeight;
+      canvas.width = w;
+      canvas.height = h;
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />;
+};
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface SignUpPageProps {
   heroImageSrc?: string;
   onSignUp?: (data: SignUpFormData) => void;
   onSignIn?: () => void;
-  onGoogleLogin?: () => void;
-  onKakaoLogin?: () => void;
   loading?: boolean;
   error?: string;
 }
@@ -57,9 +103,9 @@ export interface SignUpFormData {
   password: string;
   name: string;
   phone: string;
+  birthDate: string;
   jobTitle: string;
-  jobSeekerStatus: "신입" | "경력" | "";
-  yearsOfExperience: string;
+  jobSeekerStatus: string;
   educationLevel: string;
   educationMajor: string;
   agreedToTerms: boolean;
@@ -73,7 +119,7 @@ const GlassInputWrapper = ({ children }: { children: React.ReactNode }) => (
 );
 
 const inputClass =
-  "w-full bg-transparent text-sm p-4 rounded-2xl focus:outline-none placeholder:text-muted-foreground/50";
+  "w-full bg-transparent text-sm py-2.5 px-4 rounded-2xl focus:outline-none placeholder:text-muted-foreground/50";
 
 const EDUCATION_LEVELS = [
   "고등학교 졸업",
@@ -85,16 +131,15 @@ const EDUCATION_LEVELS = [
   "대학원 박사 졸업",
 ];
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export const SignUpPage: React.FC<SignUpPageProps> = ({
-  heroImageSrc,
   onSignUp,
   onSignIn,
-  onGoogleLogin,
-  onKakaoLogin,
   loading = false,
   error,
 }) => {
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -109,9 +154,9 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
     password: "",
     name: "",
     phone: "",
+    birthDate: "",
     jobTitle: "",
     jobSeekerStatus: "",
-    yearsOfExperience: "",
     educationLevel: "",
     educationMajor: "",
     agreedToTerms: false,
@@ -141,7 +186,7 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
     }, 600);
   };
 
-  const handleNextStep = (e: React.FormEvent) => {
+  const handleStep1 = (e: React.FormEvent) => {
     e.preventDefault();
     if (emailStatus === "taken") return;
     if (form.password !== passwordConfirm) {
@@ -152,423 +197,417 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
     setStep(2);
   };
 
+  const handleStep2 = (e: React.FormEvent) => {
+    e.preventDefault();
+    setStep(3);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSignUp?.(form);
   };
 
-  const progressWidth = step === 1 ? "50%" : "100%";
+  const progressWidth = step === 1 ? "33%" : step === 2 ? "66%" : "100%";
 
   return (
-    <div className="h-[100dvh] flex flex-col md:flex-row w-[100dvw]">
-      {/* Left: form */}
-      <section className="flex-1 flex items-center justify-center p-8 overflow-y-auto">
-        <div className="w-full max-w-md py-8">
-          <div className="flex flex-col gap-6">
-            {/* Header */}
-            <div className="signin-element signin-delay-100">
-              <Image
-                src="/logo.png"
-                alt="AURA"
-                width={96}
-                height={33}
-                priority
+    <div className="min-h-screen w-full bg-gradient-to-br from-[#0b0713] via-[#110a1e] to-[#0a0610] flex items-center justify-center p-4 md:p-8">
+      {/* Floating card */}
+      <div className="w-full max-w-6xl flex rounded-2xl overflow-hidden border border-border shadow-2xl h-[620px]">
+        {/* Left: form */}
+        <section className="w-1/2 flex flex-col p-8 md:p-10 bg-card">
+          {/* Logo — 상단 고정 */}
+          <div className="signin-element signin-delay-100 flex justify-center mb-6">
+            <Image
+              src="/logo.svg"
+              alt="합격"
+              width={220}
+              height={76}
+              style={{ width: "220px", height: "auto" }}
+              priority
+            />
+          </div>
+
+          {/* Progress — 로고 아래 고정 */}
+          <div className="signin-element signin-delay-200 mb-6 max-w-sm mx-auto w-full">
+            <div className="flex justify-between text-xs text-muted-foreground mb-2">
+              <span className={step === 1 ? "text-primary font-medium" : ""}>
+                1단계 · 기본 정보
+              </span>
+              <span className={step === 2 ? "text-primary font-medium" : ""}>
+                2단계 · 개인 정보
+              </span>
+              <span className={step === 3 ? "text-primary font-medium" : ""}>
+                3단계 · 커리어
+              </span>
+            </div>
+            <div className="h-1 w-full bg-border rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: progressWidth }}
               />
-              <p className="text-muted-foreground mt-2">
-                합격 자소서 기반 AI 코치와 함께 시작하세요
-              </p>
             </div>
+          </div>
 
-            {/* Progress */}
-            <div className="signin-element signin-delay-200">
-              <div className="flex justify-between text-xs text-muted-foreground mb-2">
-                <span className={step === 1 ? "text-primary font-medium" : ""}>
-                  1단계 · 계정 정보
-                </span>
-                <span className={step === 2 ? "text-primary font-medium" : ""}>
-                  2단계 · 커리어 정보
-                </span>
-              </div>
-              <div className="h-1 w-full bg-border rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full transition-all duration-500"
-                  style={{ width: progressWidth }}
-                />
-              </div>
-            </div>
-
-            {/* Step 1 */}
-            {step === 1 && (
-              <form className="space-y-4" onSubmit={handleNextStep}>
-                {/* Social signup buttons */}
-                <div className="signin-element signin-delay-250 space-y-3">
-                  <button
-                    type="button"
-                    onClick={() => onGoogleLogin?.()}
-                    className="w-full rounded-2xl border border-border bg-foreground/5 py-3.5 text-sm font-medium hover:bg-foreground/10 transition-colors flex items-center justify-center gap-3"
-                  >
-                    <GoogleIcon />
-                    Google로 가입하기
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onKakaoLogin?.()}
-                    className="w-full rounded-2xl py-3.5 text-sm font-medium transition-colors flex items-center justify-center gap-3 bg-[#FEE500] text-[#3C1E1E] hover:bg-[#FDD800]"
-                  >
-                    <KakaoIcon />
-                    카카오로 가입하기
-                  </button>
-                </div>
-
-                {/* Divider */}
-                <div className="signin-element signin-delay-280 flex items-center gap-3">
-                  <div className="flex-1 h-px bg-border" />
-                  <span className="text-xs text-muted-foreground">
-                    또는 이메일로 가입
-                  </span>
-                  <div className="flex-1 h-px bg-border" />
-                </div>
-
-                <div className="signin-element signin-delay-300">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    이름
-                  </label>
-                  <GlassInputWrapper>
-                    <input
-                      type="text"
-                      placeholder="홍길동"
-                      value={form.name}
-                      onChange={(e) => set("name", e.target.value)}
-                      className={inputClass}
-                      required
-                    />
-                  </GlassInputWrapper>
-                </div>
-
-                <div className="signin-element signin-delay-350">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    이메일
-                  </label>
-                  <GlassInputWrapper>
-                    <input
-                      type="email"
-                      placeholder="example@email.com"
-                      value={form.email}
-                      onChange={(e) => {
-                        set("email", e.target.value);
-                        checkEmail(e.target.value);
-                      }}
-                      className={inputClass}
-                      required
-                    />
-                  </GlassInputWrapper>
-                  {emailStatus === "checking" && (
-                    <p className="flex items-center gap-1 mt-1 pl-1 text-xs text-muted-foreground">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      확인 중...
-                    </p>
-                  )}
-                  {emailStatus === "available" && (
-                    <p className="flex items-center gap-1 mt-1 pl-1 text-xs text-emerald-500">
-                      <CheckCircle2 className="w-3 h-3" />
-                      사용 가능한 이메일입니다
-                    </p>
-                  )}
-                  {emailStatus === "taken" && (
-                    <p className="flex items-center gap-1 mt-1 pl-1 text-xs text-rose-500">
-                      <XCircle className="w-3 h-3" />
-                      이미 사용 중인 이메일입니다
-                    </p>
-                  )}
-                </div>
-
-                <div className="signin-element signin-delay-400">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    전화번호
-                  </label>
-                  <GlassInputWrapper>
-                    <input
-                      type="tel"
-                      placeholder="010-0000-0000"
-                      value={form.phone}
-                      onChange={(e) => set("phone", e.target.value)}
-                      className={inputClass}
-                    />
-                  </GlassInputWrapper>
-                </div>
-
-                <div className="signin-element signin-delay-450">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    비밀번호
-                  </label>
-                  <GlassInputWrapper>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        placeholder="6자 이상"
-                        value={form.password}
-                        onChange={(e) => set("password", e.target.value)}
-                        className={`${inputClass} pr-12`}
-                        required
-                        minLength={6}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 right-3 flex items-center"
-                      >
-                        {showPassword ? (
-                          <EyeOff className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
-                        ) : (
-                          <Eye className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
-                        )}
-                      </button>
-                    </div>
-                  </GlassInputWrapper>
-                </div>
-
-                <div className="signin-element signin-delay-500">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    비밀번호 확인
-                  </label>
-                  <GlassInputWrapper>
-                    <div className="relative">
-                      <input
-                        type={showConfirm ? "text" : "password"}
-                        placeholder="비밀번호 재입력"
-                        value={passwordConfirm}
-                        onChange={(e) => setPasswordConfirm(e.target.value)}
-                        className={`${inputClass} pr-12`}
-                        required
-                        minLength={6}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirm(!showConfirm)}
-                        className="absolute inset-y-0 right-3 flex items-center"
-                      >
-                        {showConfirm ? (
-                          <EyeOff className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
-                        ) : (
-                          <Eye className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
-                        )}
-                      </button>
-                    </div>
-                  </GlassInputWrapper>
-                </div>
-
-                {matchError && (
-                  <p className="text-xs text-rose-500">{matchError}</p>
-                )}
-
-                <button
-                  type="submit"
-                  className="signin-element signin-delay-600 w-full rounded-2xl bg-primary py-4 font-medium text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
-                >
-                  다음 단계
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-
-                <p className="signin-element signin-delay-700 text-center text-sm text-muted-foreground">
-                  이미 계정이 있나요?{" "}
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      onSignIn?.();
-                    }}
-                    className="text-primary hover:underline transition-colors"
-                  >
-                    로그인
-                  </a>
-                </p>
-              </form>
-            )}
-
-            {/* Step 2 */}
-            {step === 2 && (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="signin-element signin-delay-200">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    희망 직무
-                  </label>
-                  <GlassInputWrapper>
-                    <input
-                      type="text"
-                      placeholder="예: 백엔드 개발자, 데이터 분석가, 마케터..."
-                      value={form.jobTitle}
-                      onChange={(e) => set("jobTitle", e.target.value)}
-                      className={inputClass}
-                    />
-                  </GlassInputWrapper>
-                  <p className="text-xs text-muted-foreground mt-1 pl-1">
-                    자유롭게 입력하세요. AI가 의미를 파악합니다.
-                  </p>
-                </div>
-
-                <div className="signin-element signin-delay-250">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    취준 상태
-                  </label>
-                  <div className="grid grid-cols-2 gap-3 mt-1">
-                    {(["신입", "경력"] as const).map((status) => (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => set("jobSeekerStatus", status)}
-                        className={`rounded-2xl border py-3 text-sm font-medium transition-colors ${
-                          form.jobSeekerStatus === status
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border bg-foreground/5 text-muted-foreground hover:border-primary/50"
-                        }`}
-                      >
-                        {status}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {form.jobSeekerStatus === "경력" && (
-                  <div className="signin-element">
+          {/* Form — 나머지 공간에서 수직 중앙 정렬 */}
+          <div className="flex-1 flex items-center justify-center pb-14">
+            <div className="w-full max-w-sm">
+              {/* Step 1: 이메일, 비밀번호 */}
+              {step === 1 && (
+                <form className="space-y-3" onSubmit={handleStep1}>
+                  <div>
                     <label className="text-sm font-medium text-muted-foreground">
-                      경력 연수
+                      이메일
                     </label>
                     <GlassInputWrapper>
                       <input
-                        type="number"
-                        placeholder="예: 3"
-                        min={1}
-                        max={50}
-                        value={form.yearsOfExperience}
-                        onChange={(e) =>
-                          set("yearsOfExperience", e.target.value)
-                        }
+                        type="email"
+                        placeholder="example@email.com"
+                        value={form.email}
+                        onChange={(e) => {
+                          set("email", e.target.value);
+                          checkEmail(e.target.value);
+                        }}
+                        className={inputClass}
+                        required
+                      />
+                    </GlassInputWrapper>
+                    <p className="flex items-center gap-1 mt-1 pl-1 text-xs h-4">
+                      {emailStatus === "checking" && (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                          <span className="text-muted-foreground">
+                            확인 중...
+                          </span>
+                        </>
+                      )}
+                      {emailStatus === "available" && (
+                        <>
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                          <span className="text-emerald-500">
+                            사용 가능한 이메일입니다
+                          </span>
+                        </>
+                      )}
+                      {emailStatus === "taken" && (
+                        <>
+                          <XCircle className="w-3 h-3 text-rose-500" />
+                          <span className="text-rose-500">
+                            이미 사용 중인 이메일입니다
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      비밀번호
+                    </label>
+                    <GlassInputWrapper>
+                      <div className="relative">
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="6자 이상"
+                          value={form.password}
+                          onChange={(e) => set("password", e.target.value)}
+                          className={`${inputClass} pr-12`}
+                          required
+                          minLength={6}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute inset-y-0 right-3 flex items-center"
+                        >
+                          {showPassword ? (
+                            <EyeOff className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
+                          ) : (
+                            <Eye className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
+                          )}
+                        </button>
+                      </div>
+                    </GlassInputWrapper>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      비밀번호 확인
+                    </label>
+                    <GlassInputWrapper>
+                      <div className="relative">
+                        <input
+                          type={showConfirm ? "text" : "password"}
+                          placeholder="비밀번호 재입력"
+                          value={passwordConfirm}
+                          onChange={(e) => setPasswordConfirm(e.target.value)}
+                          className={`${inputClass} pr-12`}
+                          required
+                          minLength={6}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirm(!showConfirm)}
+                          className="absolute inset-y-0 right-3 flex items-center"
+                        >
+                          {showConfirm ? (
+                            <EyeOff className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
+                          ) : (
+                            <Eye className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
+                          )}
+                        </button>
+                      </div>
+                    </GlassInputWrapper>
+                    {matchError && (
+                      <p className="text-xs text-rose-500 mt-1 pl-1">
+                        {matchError}
+                      </p>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full rounded-2xl bg-primary py-3 font-medium text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                  >
+                    다음 단계
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+
+                  <p className="text-center text-sm text-muted-foreground">
+                    이미 계정이 있나요?{" "}
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onSignIn?.();
+                      }}
+                      className="text-primary hover:underline transition-colors"
+                    >
+                      로그인
+                    </a>
+                  </p>
+                </form>
+              )}
+
+              {/* Step 2: 이름/나이, 전화번호, 약관 */}
+              {step === 2 && (
+                <form className="space-y-3" onSubmit={handleStep2}>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      이름
+                    </label>
+                    <GlassInputWrapper>
+                      <input
+                        type="text"
+                        placeholder="홍길동"
+                        value={form.name}
+                        onChange={(e) => set("name", e.target.value)}
+                        className={inputClass}
+                        required
+                      />
+                    </GlassInputWrapper>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      생년월일
+                    </label>
+                    <GlassInputWrapper>
+                      <input
+                        type="date"
+                        value={form.birthDate}
+                        onChange={(e) => set("birthDate", e.target.value)}
+                        className={inputClass}
+                        max={new Date().toISOString().split("T")[0]}
+                      />
+                    </GlassInputWrapper>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      전화번호
+                    </label>
+                    <GlassInputWrapper>
+                      <input
+                        type="tel"
+                        placeholder="010-0000-0000"
+                        value={form.phone}
+                        onChange={(e) => set("phone", e.target.value)}
                         className={inputClass}
                       />
                     </GlassInputWrapper>
                   </div>
-                )}
 
-                <div className="signin-element signin-delay-300">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    최종 학력
-                  </label>
-                  <GlassInputWrapper>
-                    <select
-                      value={form.educationLevel}
-                      onChange={(e) => set("educationLevel", e.target.value)}
-                      className={`${inputClass} appearance-none cursor-pointer`}
+                  <div className="space-y-2 pt-1">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.agreedToTerms}
+                        onChange={(e) => set("agreedToTerms", e.target.checked)}
+                        className="mt-0.5 accent-primary"
+                        required
+                      />
+                      <span className="text-sm text-muted-foreground leading-relaxed">
+                        <a
+                          href="/terms"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          이용약관
+                        </a>
+                        에 동의합니다 (필수)
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.agreedToPrivacy}
+                        onChange={(e) =>
+                          set("agreedToPrivacy", e.target.checked)
+                        }
+                        className="mt-0.5 accent-primary"
+                        required
+                      />
+                      <span className="text-sm text-muted-foreground leading-relaxed">
+                        <a
+                          href="/privacy"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          개인정보처리방침
+                        </a>
+                        에 동의합니다 (필수)
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="flex gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setStep(1)}
+                      className="flex-none rounded-2xl border border-border py-3 px-5 hover:bg-secondary transition-colors"
                     >
-                      <option value="" disabled>
-                        선택하세요
-                      </option>
-                      {EDUCATION_LEVELS.map((level) => (
-                        <option key={level} value={level}>
-                          {level}
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 rounded-2xl bg-primary py-3 font-medium text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                    >
+                      다음 단계
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Step 3: 커리어 */}
+              {step === 3 && (
+                <form className="space-y-3 -mt-2" onSubmit={handleSubmit}>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      희망 직무
+                    </label>
+                    <GlassInputWrapper>
+                      <input
+                        type="text"
+                        placeholder="예: 백엔드 개발자, 데이터 분석가"
+                        value={form.jobTitle}
+                        onChange={(e) => set("jobTitle", e.target.value)}
+                        className={inputClass}
+                      />
+                    </GlassInputWrapper>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      전공 / 학과
+                    </label>
+                    <GlassInputWrapper>
+                      <input
+                        type="text"
+                        placeholder="예: 컴퓨터공학과"
+                        value={form.educationMajor}
+                        onChange={(e) => set("educationMajor", e.target.value)}
+                        className={inputClass}
+                      />
+                    </GlassInputWrapper>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      최종 학력
+                    </label>
+                    <GlassInputWrapper>
+                      <select
+                        value={form.educationLevel}
+                        onChange={(e) => set("educationLevel", e.target.value)}
+                        className={`${inputClass} appearance-none cursor-pointer`}
+                      >
+                        <option value="" disabled>
+                          선택하세요
                         </option>
-                      ))}
-                    </select>
-                  </GlassInputWrapper>
-                </div>
+                        {EDUCATION_LEVELS.map((level) => (
+                          <option key={level} value={level}>
+                            {level}
+                          </option>
+                        ))}
+                      </select>
+                    </GlassInputWrapper>
+                  </div>
 
-                <div className="signin-element signin-delay-350">
-                  <label className="text-sm font-medium text-muted-foreground">
-                    전공 / 학과
-                  </label>
-                  <GlassInputWrapper>
-                    <input
-                      type="text"
-                      placeholder="예: 컴퓨터공학과"
-                      value={form.educationMajor}
-                      onChange={(e) => set("educationMajor", e.target.value)}
-                      className={inputClass}
-                    />
-                  </GlassInputWrapper>
-                </div>
-
-                {/* 약관 동의 */}
-                <div className="signin-element signin-delay-400 space-y-3 pt-1">
-                  <label className="flex items-start gap-3 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={form.agreedToTerms}
-                      onChange={(e) => set("agreedToTerms", e.target.checked)}
-                      className="mt-0.5 accent-primary"
-                      required
-                    />
-                    <span className="text-sm text-muted-foreground leading-relaxed">
-                      <a
-                        href="/terms"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">
+                      취준 상태
+                    </label>
+                    <GlassInputWrapper>
+                      <select
+                        value={form.jobSeekerStatus}
+                        onChange={(e) => set("jobSeekerStatus", e.target.value)}
+                        className={`${inputClass} appearance-none cursor-pointer`}
                       >
-                        이용약관
-                      </a>
-                      에 동의합니다 (필수)
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-3 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={form.agreedToPrivacy}
-                      onChange={(e) => set("agreedToPrivacy", e.target.checked)}
-                      className="mt-0.5 accent-primary"
-                      required
-                    />
-                    <span className="text-sm text-muted-foreground leading-relaxed">
-                      <a
-                        href="/privacy"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        개인정보처리방침
-                      </a>
-                      에 동의합니다 (필수)
-                    </span>
-                  </label>
-                </div>
+                        <option value="" disabled>
+                          선택하세요
+                        </option>
+                        <option value="신입">신입</option>
+                        <option value="경력 1년">경력 1년</option>
+                        <option value="경력 2년">경력 2년</option>
+                        <option value="경력 3년 이상">경력 3년 이상</option>
+                      </select>
+                    </GlassInputWrapper>
+                  </div>
 
-                {error && <p className="text-xs text-rose-500">{error}</p>}
+                  {error && <p className="text-xs text-rose-500">{error}</p>}
 
-                <div className="flex gap-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setStep(1)}
-                    className="signin-element signin-delay-500 flex-none rounded-2xl border border-border py-4 px-5 hover:bg-secondary transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="signin-element signin-delay-500 flex-1 rounded-2xl bg-primary py-4 font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
-                  >
-                    {loading ? "처리 중..." : "가입하기"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* Right: hero */}
-      {heroImageSrc && (
-        <section className="hidden md:block flex-1 relative p-4">
-          <div
-            className="signin-slide-right signin-delay-300 absolute inset-4 rounded-3xl bg-cover bg-center"
-            style={{ backgroundImage: `url(${heroImageSrc})` }}
-          />
-          <div className="absolute inset-4 rounded-3xl bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
-          <div className="signin-element signin-delay-500 absolute bottom-12 left-12 right-12">
-            <p className="font-heading text-3xl text-white leading-snug drop-shadow-lg">
-              AI가 당신의 이야기를 완성합니다
-            </p>
+                  <div className="flex gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setStep(2)}
+                      className="flex-none rounded-2xl border border-border py-3 px-5 hover:bg-secondary transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="flex-1 rounded-2xl bg-primary py-3 font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
+                    >
+                      {loading ? "처리 중..." : "가입하기"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         </section>
-      )}
+
+        {/* Right: visual panel */}
+        <section className="hidden md:flex w-1/2 relative overflow-hidden bg-[#0d0a14]">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#0d0a14] via-[#120c1e] to-[#1a0f2e]" />
+          <ParticleCanvas />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_50%,rgba(139,92,246,0.13),transparent)]" />
+        </section>
+      </div>
     </div>
   );
 };

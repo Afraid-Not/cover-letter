@@ -97,7 +97,7 @@ export default function OnboardingPage() {
       <div className="w-full max-w-md">
         <div className="flex flex-col gap-6">
           <div>
-            <Image src="/logo.png" alt="AURA" width={96} height={33} priority />
+            <Image src="/logo.svg" alt="합격" width={96} height={33} priority />
             <p className="text-muted-foreground mt-2">
               커리어 정보를 입력하면 더 정확한 자소서를 생성할 수 있습니다
             </p>

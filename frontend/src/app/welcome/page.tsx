@@ -117,7 +117,7 @@ export default function WelcomePage() {
               "1px color-mix(in oklch, var(--foreground) 4%, transparent)",
           }}
         >
-          AURA
+          합격
         </span>
       </motion.div>
 

@@ -45,11 +45,11 @@ export const Navbar = () => {
         <div className="max-w-7xl mx-auto flex items-center pb-4 relative">
           <Link href="/" className="flex items-center">
             <Image
-              src="/logo.png"
-              alt="AURA"
-              width={64}
-              height={22}
-              style={{ width: "64px", height: "auto" }}
+              src="/long-logo.svg"
+              alt="합격"
+              width={96}
+              height={33}
+              style={{ width: "96px", height: "auto" }}
               priority
             />
           </Link>
