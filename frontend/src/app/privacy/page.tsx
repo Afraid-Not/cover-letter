@@ -1,17 +1,20 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function PrivacyPage() {
+  const router = useRouter();
   return (
     <div className="max-w-3xl mx-auto px-6 py-12 space-y-10">
       <div>
-        <Link
-          href="/"
+        <button
+          onClick={() =>
+            window.history.length > 1 ? router.back() : window.close()
+          }
           className="text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           &larr; 돌아가기
-        </Link>
+        </button>
         <h1 className="text-2xl font-bold mt-4">개인정보처리방침</h1>
         <p className="text-sm text-muted-foreground mt-1">
           최종 수정일: 2026년 4월 6일

@@ -2,34 +2,47 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import Link from "next/link";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { SignUpPage, type SignUpFormData } from "@/components/ui/sign-up";
 import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api";
 
 export default function SignupPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [passwordConfirm, setPasswordConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSignUp = async (form: SignUpFormData) => {
     setError("");
-
-    if (password !== passwordConfirm) {
-      setError("비밀번호가 일치하지 않습니다.");
-      return;
-    }
-
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) throw error;
-      router.push("/");
+      // 1. Supabase Auth 회원가입
+      const { data, error: authError } = await supabase.auth.signUp({
+        email: form.email,
+        password: form.password,
+      });
+      if (authError) throw authError;
+      if (!data.session) {
+        // 이메일 인증이 필요한 경우
+        throw new Error(
+          "가입 확인 이메일을 발송했습니다. 이메일을 확인해주세요.",
+        );
+      }
+
+      // 2. 프로필 저장 (백엔드 → 임베딩 생성 + Supabase profiles 저장)
+      await api.saveProfile({
+        name: form.name,
+        phone: form.phone || undefined,
+        job_title: form.jobTitle || undefined,
+        job_seeker_status: form.jobSeekerStatus || undefined,
+        years_of_experience: form.yearsOfExperience
+          ? parseInt(form.yearsOfExperience)
+          : undefined,
+        education_level: form.educationLevel || undefined,
+        education_major: form.educationMajor || undefined,
+        agreed_to_terms: form.agreedToTerms,
+      });
+
+      router.push("/pricing?onboarding=1");
     } catch (e) {
       setError(e instanceof Error ? e.message : "오류가 발생했습니다");
     } finally {
@@ -38,84 +51,12 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-background noise-bg relative overflow-hidden">
-      <div className="w-full md:w-[480px] flex items-center justify-center p-8 relative shrink-0">
-        <div className="pointer-events-none absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-primary/[0.06] rounded-full blur-[120px]" />
-
-        <Card className="relative w-full max-w-sm border-border/50 animate-fade-in-up">
-          <CardHeader className="text-center pb-2">
-            <div className="flex justify-center mb-3">
-              <Image src="/logo.png" alt="AURA" width={48} height={35} />
-            </div>
-            <h1 className="text-2xl font-semibold tracking-widest font-[family-name:var(--font-playfair)]">
-              AURA
-            </h1>
-            <p className="text-xs text-muted-foreground mt-1">
-              계정을 만드세요
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <input
-                type="email"
-                placeholder="이메일"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                required
-              />
-              <input
-                type="password"
-                placeholder="비밀번호 (6자 이상)"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                required
-                minLength={6}
-              />
-              <input
-                type="password"
-                placeholder="비밀번호 확인"
-                value={passwordConfirm}
-                onChange={(e) => setPasswordConfirm(e.target.value)}
-                className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                required
-                minLength={6}
-              />
-
-              {error && <p className="text-xs text-destructive">{error}</p>}
-
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "처리 중..." : "회원가입"}
-              </Button>
-            </form>
-
-            <p className="text-center text-xs text-muted-foreground">
-              이미 계정이 있나요?{" "}
-              <Link href="/login" className="underline text-foreground">
-                로그인
-              </Link>
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="hidden md:block flex-1 relative">
-        <img
-          src="/login-bg.png"
-          alt="Interview panel"
-          className="absolute inset-0 w-full h-full object-cover brightness-125"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-background to-transparent w-1/3" />
-        <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-background/70 to-transparent" />
-        <div className="absolute bottom-12 left-12 right-12 animate-fade-in">
-          <p className="text-2xl font-semibold text-foreground leading-snug">
-            9명의 AI 평가관이
-            <br />
-            당신의 자소서를 심사합니다
-          </p>
-        </div>
-      </div>
-    </div>
+    <SignUpPage
+      heroImageSrc="/login-page.png"
+      onSignUp={handleSignUp}
+      onSignIn={() => router.push("/login")}
+      loading={loading}
+      error={error}
+    />
   );
 }

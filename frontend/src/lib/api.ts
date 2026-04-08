@@ -18,7 +18,7 @@ export const api = {
       body: JSON.stringify({ text }),
     }).then((r) => r.json()),
 
-  generate: (data: {
+  generate: async (data: {
     question: string;
     job_posting: string;
     job_analysis?: Record<string, unknown>;
@@ -28,23 +28,39 @@ export const api = {
     char_limit?: number;
     feedback?: string;
     previous_answer?: string;
-  }) =>
-    fetch(`${API_BASE}/api/generate`, {
+  }) => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(data),
-    }).then((r) => r.json()),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || `생성 실패 (${r.status})`);
+    }
+    return r.json();
+  },
 
   evaluate: (data: {
     question: string;
     answer: string;
     job_analysis: Record<string, unknown>;
+    resume_structured?: Record<string, unknown> | null;
+    company_size?: string | null;
   }) =>
     fetch(`${API_BASE}/api/evaluate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then((r) => r.json()),
+
+  getResume: async (id: number) => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/resumes/${id}`, { headers }).then((r) =>
+      r.json(),
+    );
+  },
 
   listResumes: async () => {
     const headers = await getAuthHeaders();
@@ -57,6 +73,18 @@ export const api = {
       method: "POST",
       headers,
       body: JSON.stringify({ source, name }),
+    }).then((r) => r.json());
+  },
+
+  updateResume: async (
+    id: number,
+    fields: { name?: string; structured_data?: Record<string, unknown> },
+  ) => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/resumes/${id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(fields),
     }).then((r) => r.json());
   },
 
@@ -180,6 +208,7 @@ export const api = {
       char_limit?: number;
       resume_id?: number;
       job_analysis?: Record<string, unknown>;
+      is_regeneration?: boolean;
     },
   ): Promise<ProjectVersion> => {
     const headers = await getAuthHeaders();
@@ -195,11 +224,58 @@ export const api = {
     return r.json();
   },
 
+  getUsage: async (): Promise<UsageSummary> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/usage`, { headers });
+    if (!r.ok) throw new Error("사용량 조회 실패");
+    return r.json();
+  },
+
+  changePlan: async (plan: "free" | "pro" | "enterprise") => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/profiles/plan`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ plan }),
+    });
+    if (!r.ok) throw new Error("플랜 변경 실패");
+    return r.json();
+  },
+
+  getProfile: async () => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/profiles/me`, { headers }).then((r) =>
+      r.json(),
+    );
+  },
+
+  saveProfile: async (data: {
+    name: string;
+    phone?: string;
+    job_title?: string;
+    job_seeker_status?: string;
+    years_of_experience?: number;
+    education_level?: string;
+    education_major?: string;
+    agreed_to_terms: boolean;
+    avatar_url?: string;
+    bio?: string;
+  }) => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/profiles`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(data),
+    }).then((r) => r.json());
+  },
+
   evaluateStream: async (
     data: {
       question: string;
       answer: string;
       job_analysis: Record<string, unknown>;
+      resume_structured?: Record<string, unknown> | null;
+      company_size?: string | null;
     },
     onEvaluator: (event: EvaluatorEvent) => void,
   ): Promise<EvalSummary> => {
@@ -259,6 +335,9 @@ export interface CompanyInfo {
   mission: string | null;
   vision: string | null;
   products_services: string | null;
+  employee_count: number | null;
+  revenue_billion: number | null;
+  company_size: string | null;
 }
 
 export interface Project {
@@ -317,4 +396,10 @@ export interface EvalSummary {
   overall_pass_probability: number;
   all_feedback: string[];
   aggregated_feedback: string;
+}
+
+export interface UsageSummary {
+  plan: "free" | "pro" | "enterprise";
+  limits: { resumes: number; generations: number; regenerations: number };
+  usage: { resumes: number; generations: number; regenerations: number };
 }

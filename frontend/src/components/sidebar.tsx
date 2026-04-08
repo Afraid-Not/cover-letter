@@ -76,7 +76,6 @@ const ICONS: Record<string, ReactNode> = {
 export const Sidebar = () => {
   const pathname = usePathname();
   const { signOut, session } = useAuth();
-  const [expanded, setExpanded] = useState(false);
   const [hasResume, setHasResume] = useState<boolean | null>(null);
   const [tooltipDismissed, setTooltipDismissed] = useState(false);
   const resumeLinkRef = useRef<HTMLAnchorElement>(null);
@@ -106,24 +105,16 @@ export const Sidebar = () => {
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, [showTooltip, expanded]);
+  }, [showTooltip]);
 
   return (
     <>
       <aside
-        onMouseEnter={() => setExpanded(true)}
-        onMouseLeave={() => setExpanded(false)}
-        className={`
-        fixed top-0 left-0 h-screen z-40 flex flex-col
-        bg-violet-50 border-r border-violet-200
-        transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden
-        ${expanded ? "w-[240px] shadow-2xl shadow-violet-200/60" : "w-[68px]"}
-      `}
+        className="fixed top-0 left-0 h-screen z-40 flex flex-col w-[240px]
+        bg-sidebar border-r border-sidebar-border shadow-sm"
       >
-        <div className="absolute inset-0 bg-gradient-to-b from-violet-100/40 to-transparent pointer-events-none" />
-
         {/* Logo */}
-        <div className="relative px-4 py-5 flex items-center gap-3">
+        <div className="px-4 py-5 flex items-center gap-3">
           <Image
             src="/logo.png"
             alt="AURA"
@@ -131,15 +122,13 @@ export const Sidebar = () => {
             height={29}
             className="shrink-0"
           />
-          <h1
-            className={`text-xl font-semibold tracking-widest whitespace-nowrap transition-opacity duration-200 font-[family-name:var(--font-playfair)] text-violet-800 ${expanded ? "opacity-100" : "opacity-0"}`}
-          >
+          <h1 className="text-xl font-semibold tracking-widest whitespace-nowrap font-heading text-primary">
             AURA
           </h1>
         </div>
 
         {/* Nav */}
-        <nav className="relative flex-1 px-2 mt-4 space-y-1">
+        <nav className="flex-1 px-2 mt-4 space-y-1">
           {NAV_ITEMS.map((item) => {
             const isResumes = item.href === "/resumes";
             const isActive =
@@ -151,32 +140,31 @@ export const Sidebar = () => {
                 <Link
                   ref={isResumes ? resumeLinkRef : undefined}
                   href={item.href}
-                  title={!expanded ? item.label : undefined}
                   className={`
                   flex items-center gap-3 px-3 py-3 rounded-xl text-base transition-all duration-200
                   ${
                     isActive
-                      ? "bg-violet-200/70 text-violet-800"
-                      : "text-slate-500 hover:bg-violet-100 hover:text-violet-800"
+                      ? "bg-accent text-primary"
+                      : "text-sidebar-foreground hover:bg-accent hover:text-sidebar-foreground"
                   }
                 `}
                 >
                   <span
-                    className={`shrink-0 ${isActive ? "text-violet-700" : "text-slate-400"}`}
+                    className={`shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`}
                   >
                     {ICONS[item.icon]}
                   </span>
                   <span
-                    className={`whitespace-nowrap transition-opacity duration-200 text-[14px] tracking-wide ${
+                    className={`whitespace-nowrap text-[14px] tracking-wide ${
                       isActive
-                        ? "font-semibold text-violet-800"
-                        : "font-medium text-slate-500"
-                    } ${expanded ? "opacity-100" : "opacity-0"}`}
+                        ? "font-semibold text-primary"
+                        : "font-medium text-sidebar-foreground"
+                    }`}
                   >
                     {item.label}
                   </span>
-                  {isActive && expanded && (
-                    <div className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse-soft" />
+                  {isActive && (
+                    <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
                   )}
                 </Link>
               </div>
@@ -185,21 +173,19 @@ export const Sidebar = () => {
         </nav>
 
         {/* Footer */}
-        <div className="relative px-2 pb-4 space-y-1">
+        <div className="px-2 pb-4 space-y-1">
           {/* Legal links */}
-          <div
-            className={`flex gap-2 px-3 py-1 transition-opacity duration-200 ${expanded ? "opacity-100" : "opacity-0 pointer-events-none"}`}
-          >
+          <div className="flex gap-2 px-3 py-1">
             <Link
               href="/terms"
-              className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors duration-200"
             >
               이용약관
             </Link>
-            <span className="text-[10px] text-slate-300">|</span>
+            <span className="text-[10px] text-border">|</span>
             <Link
               href="/privacy"
-              className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors duration-200"
             >
               개인정보처리방침
             </Link>
@@ -207,8 +193,7 @@ export const Sidebar = () => {
 
           <button
             onClick={signOut}
-            title={!expanded ? "로그아웃" : undefined}
-            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold text-slate-400 hover:text-violet-800 hover:bg-violet-100 transition-all"
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-muted-foreground hover:text-sidebar-foreground hover:bg-accent transition-all duration-200"
           >
             <svg
               className="w-6 h-6 shrink-0"
@@ -223,11 +208,7 @@ export const Sidebar = () => {
                 d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
               />
             </svg>
-            <span
-              className={`whitespace-nowrap transition-opacity duration-200 text-[15px] ${expanded ? "opacity-100" : "opacity-0"}`}
-            >
-              로그아웃
-            </span>
+            <span className="whitespace-nowrap text-[15px]">로그아웃</span>
           </button>
         </div>
       </aside>
@@ -253,15 +234,15 @@ export const Sidebar = () => {
               height: 0,
               borderTop: "7px solid transparent",
               borderBottom: "7px solid transparent",
-              borderRight: "8px solid rgb(139 92 246)",
+              borderRight: "8px solid #c96442",
             }}
           />
           {/* Balloon */}
-          <div className="bg-violet-500 text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-violet-300/50 whitespace-nowrap flex items-center gap-2">
+          <div className="bg-primary text-primary-foreground text-[13px] font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-black/10 whitespace-nowrap flex items-center gap-2">
             <span>먼저 이력서를 등록해주세요!</span>
             <button
               onClick={() => setTooltipDismissed(true)}
-              className="ml-1 text-white/70 hover:text-white transition-colors leading-none text-base"
+              className="ml-1 text-primary-foreground/70 hover:text-primary-foreground transition-colors leading-none text-base"
               aria-label="닫기"
             >
               ×

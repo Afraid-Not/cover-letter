@@ -2,18 +2,37 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence, type Variants } from "framer-motion";
+import { Check, LoaderCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
+  Stepper,
+  StepperNav,
+  StepperItem,
+  StepperTrigger,
+  StepperIndicator,
+  StepperSeparator,
+  StepperTitle,
+} from "@/components/ui/stepper";
+import {
   EvaluationCard,
   EvaluationFeedback,
 } from "@/components/evaluation-card";
 import { EvaluationStream } from "@/components/evaluation-stream";
 import { api, getProjectStatus } from "@/lib/api";
-import type { Project, ProjectVersion, EvaluatorEvent } from "@/lib/api";
+import type {
+  Project,
+  ProjectVersion,
+  EvaluatorEvent,
+  UsageSummary,
+} from "@/lib/api";
+import { toast } from "sonner";
+import { AiLoader } from "@/components/ui/ai-loader";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 
 interface Resume {
   id: number;
@@ -27,40 +46,6 @@ const STEPS = [
   { id: 3, title: "작성 설정", description: "모드와 옵션을 설정하세요" },
   { id: 4, title: "결과", description: "생성된 자소서와 평가 결과" },
 ] as const;
-
-const CheckIcon = () => (
-  <svg
-    className="w-3.5 h-3.5"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    strokeWidth={2.5}
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M4.5 12.75l6 6 9-13.5"
-    />
-  </svg>
-);
-
-const SpinnerIcon = () => (
-  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-    <circle
-      className="opacity-25"
-      cx="12"
-      cy="12"
-      r="10"
-      stroke="currentColor"
-      strokeWidth="4"
-    />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-    />
-  </svg>
-);
 
 const BackIcon = () => (
   <svg
@@ -120,7 +105,9 @@ const PolicyErrorModal = ({ onClose }: { onClose: () => void }) => (
           </svg>
         </div>
         <div>
-          <h3 className="text-base font-semibold">보안 정책으로 분석 실패</h3>
+          <h3 className="font-heading text-xl text-foreground">
+            보안 정책으로 분석 실패
+          </h3>
           <p className="text-sm text-muted-foreground mt-1">
             AI가 이미지 분석을 거부했습니다. 아래 방법 중 하나를 시도해보세요.
           </p>
@@ -176,6 +163,7 @@ export default function ProjectPage({
   const router = useRouter();
 
   const [project, setProject] = useState<Project | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeStep, setActiveStep] = useState(1);
   const [genStep, setGenStep] = useState<GenStep>("idle");
@@ -188,11 +176,20 @@ export default function ProjectPage({
     Project["job_analysis"] | null
   >(null);
   const [savingAnalysis, setSavingAnalysis] = useState(false);
+  const [researchingCompany, setResearchingCompany] = useState(false);
+  const [companyInfoDraft, setCompanyInfoDraft] = useState({
+    mission: "",
+    vision: "",
+    products_services: "",
+  });
+  const [savingCompanyInfo, setSavingCompanyInfo] = useState(false);
 
   // Step 2
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [selectedResumeId, setSelectedResumeId] = useState<number | null>(null);
   const [resumeText, setResumeText] = useState("");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [resumeStructured, setResumeStructured] = useState<any>(null);
 
   // Step 3
   const [mode, setMode] = useState<"question" | "general">("general");
@@ -212,19 +209,36 @@ export default function ProjectPage({
     null,
   );
 
+  const isWorking =
+    genStep === "generating" || genStep === "evaluating" || savingAnalysis;
+  useNavigationGuard(
+    isWorking,
+    "작업이 진행 중입니다. 페이지를 벗어나면 작업이 중단됩니다.",
+  );
+
   // Load project + resumes
   useEffect(() => {
     const load = async () => {
       try {
-        const [proj, resumeList] = await Promise.all([
+        const [proj, resumeList, usageData] = await Promise.all([
           api.getProject(Number(id)),
           api.listResumes(),
+          api.getUsage().catch(() => null),
         ]);
+        setUsage(usageData);
         setProject(proj);
         setResumes(resumeList);
 
         // Restore state from saved project
-        if (proj.resume_id) setSelectedResumeId(proj.resume_id);
+        if (proj.resume_id) {
+          setSelectedResumeId(proj.resume_id);
+          try {
+            const full = await api.getResume(proj.resume_id);
+            setResumeStructured(full.structured_data ?? null);
+          } catch {
+            // structured_data 없어도 기능에 지장 없음
+          }
+        }
         if (proj.mode) setMode(proj.mode as "question" | "general");
         if (proj.question) setQuestion(proj.question);
         if (proj.char_limit) setCharLimit(String(proj.char_limit));
@@ -254,6 +268,8 @@ export default function ProjectPage({
         } else {
           setActiveStep(1);
         }
+
+        // 자동 회사 조사는 사용자가 버튼을 클릭할 때만 수행
       } catch {
         router.push("/");
       } finally {
@@ -301,6 +317,19 @@ export default function ProjectPage({
 
   const handleGenerate = async () => {
     if (!project) return;
+    if (
+      usage &&
+      usage.limits.generations > 0 &&
+      usage.usage.generations >= usage.limits.generations
+    ) {
+      toast.error("자소서 생성 한도에 도달했습니다.", {
+        action: {
+          label: "플랜 업그레이드",
+          onClick: () => router.push("/pricing"),
+        },
+      });
+      return;
+    }
     setError("");
     setGenStep("generating");
     setActiveStep(4);
@@ -331,25 +360,30 @@ export default function ProjectPage({
       setAnswer(result.answer);
       setCharCount(result.char_count);
 
-      setGenStep("evaluating");
-      setEvalEvents([]);
+      let evalRes = null;
+      if (usage?.plan !== "free") {
+        setGenStep("evaluating");
+        setEvalEvents([]);
 
-      const evalRes = await api.evaluateStream(
-        {
-          question: effectiveQuestion,
-          answer: result.answer,
-          job_analysis: result.job_analysis,
-        },
-        (ev) => setEvalEvents((prev) => [...prev, ev]),
-      );
+        evalRes = await api.evaluateStream(
+          {
+            question: effectiveQuestion,
+            answer: result.answer,
+            job_analysis: result.job_analysis,
+            resume_structured: resumeStructured,
+            company_size: project.companies?.company_size ?? null,
+          },
+          (ev) => setEvalEvents((prev) => [...prev, ev]),
+        );
 
-      setEvalResult(evalRes);
+        setEvalResult(evalRes);
+      }
       setGenStep("done");
 
       // 새 버전으로 저장 (덮어쓰지 않고 이력 보존)
       const version = await api.createVersion(project.id, {
         answer: result.answer,
-        evaluation: evalRes,
+        evaluation: evalRes ?? undefined,
         question: effectiveQuestion,
         mode,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -358,18 +392,47 @@ export default function ProjectPage({
       });
       setVersions((prev) => [...prev, version]);
       setSelectedVersionId(version.id);
+      api
+        .getUsage()
+        .then(setUsage)
+        .catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : "API error");
-      setGenStep("idle");
-      setActiveStep(3);
+      const msg = e instanceof Error ? e.message : "API error";
+      if (msg.startsWith("PLAN_LIMIT|")) {
+        toast.error(msg.split("|")[1], {
+          action: {
+            label: "플랜 업그레이드",
+            onClick: () => router.push("/pricing"),
+          },
+        });
+        setGenStep("idle");
+        setActiveStep(3);
+      } else {
+        setError(msg);
+        setGenStep("idle");
+        setActiveStep(3);
+      }
     }
   };
 
   const MAX_REGENERATIONS = 5;
+  const regenLimitReached =
+    usage !== null &&
+    (usage.limits.regenerations === 0 ||
+      (usage.limits.regenerations > 0 &&
+        usage.usage.regenerations >= usage.limits.regenerations));
 
   const handleRegenerate = async () => {
     if (!project || !evalResult) return;
-    if (versions.length >= MAX_REGENERATIONS) return;
+    if (regenLimitReached) {
+      toast.error("재생성 한도에 도달했습니다.", {
+        action: {
+          label: "플랜 업그레이드",
+          onClick: () => router.push("/pricing"),
+        },
+      });
+      return;
+    }
     setGenStep("generating");
     setError("");
 
@@ -394,36 +457,57 @@ export default function ProjectPage({
       setAnswer(result.answer);
       setCharCount(result.char_count);
 
-      setGenStep("evaluating");
-      setEvalEvents([]);
+      let evalRes = null;
+      if (usage?.plan !== "free") {
+        setGenStep("evaluating");
+        setEvalEvents([]);
 
-      const evalRes = await api.evaluateStream(
-        {
-          question: effectiveQuestion,
-          answer: result.answer,
-          job_analysis: project.job_analysis,
-        },
-        (ev) => setEvalEvents((prev) => [...prev, ev]),
-      );
+        evalRes = await api.evaluateStream(
+          {
+            question: effectiveQuestion,
+            answer: result.answer,
+            job_analysis: project.job_analysis,
+            resume_structured: resumeStructured,
+            company_size: project.companies?.company_size ?? null,
+          },
+          (ev) => setEvalEvents((prev) => [...prev, ev]),
+        );
 
-      setEvalResult(evalRes);
+        setEvalResult(evalRes);
+      }
       setGenStep("done");
 
       // 새 버전으로 저장 (덮어쓰지 않고 이력 보존)
       const version = await api.createVersion(project.id, {
         answer: result.answer,
-        evaluation: evalRes,
+        evaluation: evalRes ?? undefined,
         question: effectiveQuestion,
         mode,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
         resume_id: selectedResumeId ?? undefined,
         job_analysis: project.job_analysis,
+        is_regeneration: true,
       });
       setVersions((prev) => [...prev, version]);
       setSelectedVersionId(version.id);
+      api
+        .getUsage()
+        .then(setUsage)
+        .catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : "API error");
-      setGenStep("done");
+      const msg = e instanceof Error ? e.message : "API error";
+      if (msg.startsWith("PLAN_LIMIT|")) {
+        toast.error(msg.split("|")[1], {
+          action: {
+            label: "플랜 업그레이드",
+            onClick: () => router.push("/pricing"),
+          },
+        });
+        setGenStep("done");
+      } else {
+        setError(msg);
+        setGenStep("done");
+      }
     }
   };
 
@@ -446,895 +530,1157 @@ export default function ProjectPage({
   const company = project.job_analysis?.company || "회사명 미확인";
   const position = project.job_analysis?.position || "직무 미확인";
 
+  const stepContentVariants: Variants = {
+    hidden: { opacity: 0, y: 10 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.35, ease: "easeOut" as const },
+    },
+    exit: { opacity: 0, y: -8, transition: { duration: 0.2 } },
+  };
+
+  const resultItemVariants: Variants = {
+    hidden: { opacity: 0, y: 16 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.4, ease: "easeOut" as const },
+    },
+  };
+
   return (
-    <div>
-      {showPolicyError && (
-        <PolicyErrorModal onClose={() => setShowPolicyError(false)} />
-      )}
-      {/* Top bar */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push("/")}
-            className="p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-          >
-            <BackIcon />
-          </button>
-          <div>
-            <h2 className="text-lg font-semibold">{company}</h2>
-            <p className="text-xs text-muted-foreground">{position}</p>
+    <>
+      {isWorking && <AiLoader />}
+      <div>
+        {showPolicyError && (
+          <PolicyErrorModal onClose={() => setShowPolicyError(false)} />
+        )}
+        {/* Top bar */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push("/")}
+              className="p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <BackIcon />
+            </button>
+            <div>
+              <h2 className="font-heading text-xl text-foreground">
+                {company}
+              </h2>
+              <p className="text-xs text-muted-foreground">{position}</p>
+            </div>
+          </div>
+
+          {/* 생성 요약 */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {(selectedResumeId || resumeText) && (
+              <>
+                <span>
+                  {selectedResumeId
+                    ? resumes.find((r) => r.id === selectedResumeId)?.name
+                    : `직접 입력 (${resumeText.length}자)`}
+                </span>
+                <span className="text-border">|</span>
+              </>
+            )}
+            <span>{mode === "general" ? "일반 작성" : "질문 기반 작성"}</span>
+            {charLimit && (
+              <>
+                <span className="text-border">|</span>
+                <span>{charLimit}자</span>
+              </>
+            )}
           </div>
         </div>
-        <button
-          onClick={handleDelete}
-          className="p-2 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-          title="프로젝트 삭제"
-        >
-          <TrashIcon />
-        </button>
-      </div>
 
-      <div className="flex gap-0 min-h-[calc(100vh-12rem)]">
-        {/* Left: Step Navigation */}
-        <nav className="w-56 shrink-0 pr-6 border-r border-border/50">
-          <div className="sticky top-8">
-            <ol className="space-y-1">
-              {STEPS.map((step) => {
-                const isActive = activeStep === step.id;
-                const isComplete = isStepComplete(step.id);
-                const isResult = step.id === 4;
-                const canClick = canNavigateTo(step.id);
-                const showDone = isResult ? genStep === "done" : isComplete;
-                const showLoading = isResult && isLoading && activeStep === 4;
+        <div className="flex gap-0 min-h-[calc(100vh-12rem)]">
+          {/* Left: Step Navigation */}
+          <div className="w-56 shrink-0 pr-6 border-r border-border">
+            <div className="sticky top-8 pl-6">
+              <Stepper
+                value={activeStep}
+                onValueChange={(step) =>
+                  canNavigateTo(step) && setActiveStep(step)
+                }
+                orientation="vertical"
+                indicators={{
+                  completed: <Check className="size-3.5" />,
+                  loading: <LoaderCircle className="size-3.5 animate-spin" />,
+                }}
+              >
+                <StepperNav>
+                  {STEPS.map((step) => {
+                    const isResult = step.id === 4;
+                    const isComplete = isStepComplete(step.id);
+                    const canClick = canNavigateTo(step.id);
+                    const showLoading =
+                      isResult && isLoading && activeStep === 4;
 
-                return (
-                  <li key={step.id}>
-                    <button
-                      onClick={() => canClick && setActiveStep(step.id)}
-                      disabled={!canClick}
-                      className={`
-                        w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150
-                        ${isActive ? "bg-accent/80" : canClick ? "hover:bg-accent/40" : ""}
-                        ${!canClick ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}
-                      `}
-                    >
-                      <span
-                        className={`
-                          mt-0.5 shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-colors
-                          ${
-                            showLoading
-                              ? "bg-primary/20 text-primary"
-                              : showDone
-                                ? "bg-primary text-primary-foreground"
-                                : isActive
-                                  ? "border-2 border-primary text-primary"
-                                  : "border border-border text-muted-foreground"
-                          }
-                        `}
+                    return (
+                      <StepperItem
+                        key={step.id}
+                        step={step.id}
+                        completed={isResult ? genStep === "done" : isComplete}
+                        disabled={!canClick}
+                        loading={showLoading}
+                        className="items-start"
                       >
-                        {showLoading ? (
-                          <SpinnerIcon />
-                        ) : showDone ? (
-                          <CheckIcon />
-                        ) : (
-                          step.id
+                        <StepperTrigger className="w-full flex-row items-center gap-3 px-3 py-2 rounded-lg data-[state=active]:bg-primary/10 hover:bg-accent/60 transition-colors duration-150">
+                          <StepperIndicator className="shrink-0" />
+                          <StepperTitle className="font-semibold data-[state=active]:text-primary data-[state=inactive]:text-foreground/70 data-[state=completed]:text-foreground/70">
+                            {step.title}
+                          </StepperTitle>
+                        </StepperTrigger>
+                        {step.id < 4 && (
+                          <StepperSeparator className="ms-[1.375rem] data-[state=completed]:bg-primary" />
                         )}
-                      </span>
-                      <div className="min-w-0">
-                        <p
-                          className={`text-base font-semibold ${isActive ? "text-white" : "text-white/70"}`}
-                        >
-                          {step.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground/70 mt-0.5 break-words whitespace-normal">
-                          {step.description}
-                        </p>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
+                      </StepperItem>
+                    );
+                  })}
+                </StepperNav>
+              </Stepper>
+            </div>
           </div>
-        </nav>
 
-        {/* Right: Content */}
-        <div className="flex-1 pl-6">
-          {/* Step 1: 채용공고 */}
-          {activeStep === 1 && (
-            <div className="animate-fade-in space-y-5">
-              <div>
-                <h3 className="text-base font-semibold">채용공고</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  분석된 채용공고 정보입니다.
-                </p>
-              </div>
-
-              {/* Analysis summary */}
-              {project.job_analysis && (
-                <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      분석 결과
-                    </p>
-                    {!editingAnalysis ? (
-                      <button
-                        onClick={() => {
-                          setAnalysisDraft({ ...project.job_analysis });
-                          setEditingAnalysis(true);
-                        }}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        수정
-                      </button>
-                    ) : (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setEditingAnalysis(false)}
-                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                          disabled={savingAnalysis}
-                        >
-                          취소
-                        </button>
-                        <button
-                          onClick={async () => {
-                            if (!analysisDraft) return;
-                            setSavingAnalysis(true);
-                            await api.updateProject(project.id, {
-                              job_analysis: analysisDraft,
-                            } as Partial<Project>);
-                            setProject({
-                              ...project,
-                              job_analysis: analysisDraft,
-                            });
-                            setEditingAnalysis(false);
-                            setSavingAnalysis(false);
-                          }}
-                          className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
-                          disabled={savingAnalysis}
-                        >
-                          {savingAnalysis ? "저장 중..." : "저장"}
-                        </button>
-                      </div>
-                    )}
+          {/* Right: Content */}
+          <div className="flex-1 pl-6 overflow-hidden">
+            <AnimatePresence mode="wait">
+              {/* Step 1: 채용공고 */}
+              {activeStep === 1 && (
+                <motion.div
+                  key="step1"
+                  variants={stepContentVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  className="space-y-5"
+                >
+                  <div>
+                    <h3 className="font-heading text-xl text-foreground">
+                      채용공고
+                    </h3>
                   </div>
 
-                  {editingAnalysis && analysisDraft ? (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-xs text-muted-foreground block mb-1">
-                            회사
-                          </label>
-                          <input
-                            type="text"
-                            value={analysisDraft.company}
-                            onChange={(e) =>
-                              setAnalysisDraft({
-                                ...analysisDraft,
-                                company: e.target.value,
-                              })
-                            }
-                            className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-muted-foreground block mb-1">
-                            직무
-                          </label>
-                          <input
-                            type="text"
-                            value={analysisDraft.position}
-                            onChange={(e) =>
-                              setAnalysisDraft({
-                                ...analysisDraft,
-                                position: e.target.value,
-                              })
-                            }
-                            className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-muted-foreground block mb-1">
-                            경력
-                          </label>
-                          <input
-                            type="text"
-                            value={analysisDraft.experience_level}
-                            onChange={(e) =>
-                              setAnalysisDraft({
-                                ...analysisDraft,
-                                experience_level: e.target.value,
-                              })
-                            }
-                            className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                          />
-                        </div>
-                      </div>
-                      <div className="border-t border-border/50 pt-3 space-y-3">
-                        {(
-                          [
-                            ["required_skills", "필수 역량"],
-                            ["preferred_skills", "우대 역량"],
-                            ["responsibilities", "주요 업무"],
-                            ["keywords", "핵심 키워드"],
-                            ["culture_keywords", "조직문화 키워드"],
-                          ] as const
-                        ).map(([key, label]) => (
-                          <div key={key}>
-                            <label className="text-xs text-muted-foreground block mb-1.5">
-                              {label}
-                            </label>
-                            <div className="flex flex-wrap gap-1.5 mb-1.5">
-                              {(analysisDraft[key] || []).map(
-                                (tag: string, i: number) => (
-                                  <span
-                                    key={i}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent text-xs"
-                                  >
-                                    {tag}
-                                    <button
-                                      onClick={() =>
-                                        setAnalysisDraft({
-                                          ...analysisDraft,
-                                          [key]: analysisDraft[key].filter(
-                                            (_: string, j: number) => j !== i,
-                                          ),
-                                        })
-                                      }
-                                      className="text-muted-foreground hover:text-destructive transition-colors"
-                                    >
-                                      <svg
-                                        className="w-3 h-3"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          d="M6 18 18 6M6 6l12 12"
-                                        />
-                                      </svg>
-                                    </button>
-                                  </span>
-                                ),
-                              )}
-                            </div>
-                            <div className="flex gap-1.5">
-                              <input
-                                type="text"
-                                placeholder="입력 후 Enter"
-                                className="flex-1 h-7 rounded-md border border-input bg-transparent px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                                onKeyDown={(e) => {
-                                  if (
-                                    e.key === "Enter" &&
-                                    e.currentTarget.value.trim()
-                                  ) {
-                                    e.preventDefault();
-                                    const v = e.currentTarget.value.trim();
-                                    if (!analysisDraft[key].includes(v)) {
-                                      setAnalysisDraft({
-                                        ...analysisDraft,
-                                        [key]: [...analysisDraft[key], v],
-                                      });
-                                    }
-                                    e.currentTarget.value = "";
-                                  }
+                  {/* 2-column: 채용 공고 요약 + 회사 정보 */}
+                  <div className="grid grid-cols-2 gap-5 items-stretch">
+                    {/* Analysis summary */}
+                    {project.job_analysis && (
+                      <div className="rounded-lg border border-border bg-card p-4 space-y-3 max-h-[520px] overflow-y-auto">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-medium text-muted-foreground">
+                            채용 공고 요약
+                          </p>
+                          {!editingAnalysis ? (
+                            <button
+                              onClick={() => {
+                                setAnalysisDraft({ ...project.job_analysis });
+                                setEditingAnalysis(true);
+                              }}
+                              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              수정
+                            </button>
+                          ) : (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setEditingAnalysis(false)}
+                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                disabled={savingAnalysis}
+                              >
+                                취소
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (!analysisDraft) return;
+                                  setSavingAnalysis(true);
+                                  await api.updateProject(project.id, {
+                                    job_analysis: analysisDraft,
+                                  } as Partial<Project>);
+                                  setProject({
+                                    ...project,
+                                    job_analysis: analysisDraft,
+                                  });
+                                  setEditingAnalysis(false);
+                                  setSavingAnalysis(false);
                                 }}
-                              />
+                                className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                                disabled={savingAnalysis}
+                              >
+                                {savingAnalysis ? "저장 중..." : "저장"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {editingAnalysis && analysisDraft ? (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs text-muted-foreground block mb-1">
+                                  회사
+                                </label>
+                                <input
+                                  type="text"
+                                  value={analysisDraft.company}
+                                  onChange={(e) =>
+                                    setAnalysisDraft({
+                                      ...analysisDraft,
+                                      company: e.target.value,
+                                    })
+                                  }
+                                  className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-muted-foreground block mb-1">
+                                  직무
+                                </label>
+                                <input
+                                  type="text"
+                                  value={analysisDraft.position}
+                                  onChange={(e) =>
+                                    setAnalysisDraft({
+                                      ...analysisDraft,
+                                      position: e.target.value,
+                                    })
+                                  }
+                                  className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-muted-foreground block mb-1">
+                                  경력
+                                </label>
+                                <input
+                                  type="text"
+                                  value={analysisDraft.experience_level}
+                                  onChange={(e) =>
+                                    setAnalysisDraft({
+                                      ...analysisDraft,
+                                      experience_level: e.target.value,
+                                    })
+                                  }
+                                  className="w-full h-8 rounded-md border border-input bg-transparent px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                />
+                              </div>
+                            </div>
+                            <div className="border-t border-border/50 pt-3 space-y-3">
+                              {(
+                                [
+                                  ["required_skills", "필수 역량"],
+                                  ["preferred_skills", "우대 역량"],
+                                  ["responsibilities", "주요 업무"],
+                                  ["keywords", "핵심 키워드"],
+                                  ["culture_keywords", "조직문화 키워드"],
+                                ] as const
+                              ).map(([key, label]) => (
+                                <div key={key}>
+                                  <label className="text-xs text-muted-foreground block mb-1.5">
+                                    {label}
+                                  </label>
+                                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                                    {(analysisDraft[key] || []).map(
+                                      (tag: string, i: number) => (
+                                        <span
+                                          key={i}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent text-xs"
+                                        >
+                                          {tag}
+                                          <button
+                                            onClick={() =>
+                                              setAnalysisDraft({
+                                                ...analysisDraft,
+                                                [key]: analysisDraft[
+                                                  key
+                                                ].filter(
+                                                  (_: string, j: number) =>
+                                                    j !== i,
+                                                ),
+                                              })
+                                            }
+                                            className="text-muted-foreground hover:text-destructive transition-colors"
+                                          >
+                                            <svg
+                                              className="w-3 h-3"
+                                              fill="none"
+                                              viewBox="0 0 24 24"
+                                              stroke="currentColor"
+                                              strokeWidth={2}
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M6 18 18 6M6 6l12 12"
+                                              />
+                                            </svg>
+                                          </button>
+                                        </span>
+                                      ),
+                                    )}
+                                  </div>
+                                  <div className="flex gap-1.5">
+                                    <input
+                                      type="text"
+                                      placeholder="입력 후 Enter"
+                                      className="flex-1 h-7 rounded-md border border-input bg-transparent px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                                      onKeyDown={(e) => {
+                                        if (
+                                          e.key === "Enter" &&
+                                          e.currentTarget.value.trim()
+                                        ) {
+                                          e.preventDefault();
+                                          const v =
+                                            e.currentTarget.value.trim();
+                                          if (!analysisDraft[key].includes(v)) {
+                                            setAnalysisDraft({
+                                              ...analysisDraft,
+                                              [key]: [...analysisDraft[key], v],
+                                            });
+                                          }
+                                          e.currentTarget.value = "";
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                        ))}
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  회사
+                                </p>
+                                <p className="font-medium">{company}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  직무
+                                </p>
+                                <p className="font-medium">{position}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  경력
+                                </p>
+                                <p className="font-medium">
+                                  {project.job_analysis.experience_level}
+                                </p>
+                              </div>
+                            </div>
+                            {project.job_analysis.required_skills?.length >
+                              0 && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1.5">
+                                  필수 역량
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {project.job_analysis.required_skills.map(
+                                    (s: string) => (
+                                      <Badge
+                                        key={s}
+                                        variant="secondary"
+                                        className="text-[11px]"
+                                      >
+                                        {s}
+                                      </Badge>
+                                    ),
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {project.job_analysis.keywords?.length > 0 && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1.5">
+                                  키워드
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {project.job_analysis.keywords.map(
+                                    (k: string) => (
+                                      <Badge
+                                        key={k}
+                                        variant="outline"
+                                        className="text-[11px]"
+                                      >
+                                        {k}
+                                      </Badge>
+                                    ),
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">
-                            회사
-                          </p>
-                          <p className="font-medium">{company}</p>
+                    )}
+
+                    {/* 회사 정보 (research 결과) — right column */}
+                    <div className="h-full">
+                      {researchingCompany && (
+                        <div className="rounded-lg border border-border bg-card p-4 h-full flex items-center gap-3 text-sm text-muted-foreground">
+                          <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0" />
+                          <span>
+                            회사 정보 조사 중
+                            <span className="text-xs ml-1 opacity-60">
+                              (미션 · 비전 · 기업규모)
+                            </span>
+                          </span>
                         </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">
-                            직무
+                      )}
+                      {!researchingCompany && (
+                        <div className="rounded-lg border border-border bg-card p-4 space-y-3 max-h-[520px] overflow-y-auto flex flex-col">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              회사 정보
+                            </p>
+                            {usage && usage.plan !== "free" ? (
+                              <button
+                                onClick={async () => {
+                                  setResearchingCompany(true);
+                                  try {
+                                    const researched =
+                                      await api.researchCompany(project.id);
+                                    setProject(researched);
+                                  } catch {
+                                    toast.error(
+                                      "회사 정보 조사에 실패했습니다.",
+                                    );
+                                  } finally {
+                                    setResearchingCompany(false);
+                                  }
+                                }}
+                                className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                              >
+                                자동 검색
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground/50 bg-muted/40 rounded px-1.5 py-0.5">
+                                Free — 직접 입력
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
+                            미션·비전·주요 서비스를 상세히 입력할수록
+                            <br />
+                            지원동기와 입사 후 포부가 더 구체적으로 작성됩니다.
                           </p>
-                          <p className="font-medium">{position}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">
-                            경력
-                          </p>
-                          <p className="font-medium">
-                            {project.job_analysis.experience_level}
-                          </p>
-                        </div>
-                      </div>
-                      {project.job_analysis.required_skills?.length > 0 && (
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1.5">
-                            필수 역량
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {project.job_analysis.required_skills.map(
-                              (s: string) => (
-                                <Badge
-                                  key={s}
-                                  variant="secondary"
-                                  className="text-[11px]"
-                                >
-                                  {s}
-                                </Badge>
+                          {/* 기업 규모 뱃지 */}
+                          {(project.companies?.company_size ||
+                            project.companies?.employee_count) && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {project.companies.company_size && (
+                                <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                                  {project.companies.company_size}
+                                </span>
+                              )}
+                              {project.companies.employee_count && (
+                                <span className="text-xs text-muted-foreground">
+                                  임직원{" "}
+                                  {project.companies.employee_count.toLocaleString()}
+                                  명
+                                </span>
+                              )}
+                              {project.companies.revenue_billion && (
+                                <span className="text-xs text-muted-foreground">
+                                  매출{" "}
+                                  {project.companies.revenue_billion.toLocaleString()}
+                                  억
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {/* 미션 · 비전 · 주요 제품/서비스 */}
+                          <div className="space-y-2.5 flex-1">
+                            {(
+                              [
+                                ["mission", "미션"],
+                                ["vision", "비전"],
+                                ["products_services", "주요 제품/서비스"],
+                              ] as const
+                            ).map(([key, label]) =>
+                              project.companies?.[key] ? (
+                                <div key={key}>
+                                  <p className="text-xs text-muted-foreground mb-1">
+                                    {label}
+                                  </p>
+                                  <p className="text-sm leading-relaxed">
+                                    {project.companies[key]}
+                                  </p>
+                                </div>
+                              ) : (
+                                <div key={key}>
+                                  <label className="text-xs text-muted-foreground block mb-1">
+                                    {label}
+                                  </label>
+                                  <textarea
+                                    rows={2}
+                                    value={companyInfoDraft[key]}
+                                    onChange={(e) =>
+                                      setCompanyInfoDraft((d) => ({
+                                        ...d,
+                                        [key]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder={`${label}을 입력하세요`}
+                                    className="w-full resize-none rounded-md border border-input bg-transparent px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                                  />
+                                </div>
                               ),
                             )}
                           </div>
-                        </div>
-                      )}
-                      {project.job_analysis.keywords?.length > 0 && (
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1.5">
-                            키워드
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {project.job_analysis.keywords.map((k: string) => (
-                              <Badge
-                                key={k}
-                                variant="outline"
-                                className="text-[11px]"
-                              >
-                                {k}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* 회사 정보 (research 결과) */}
-              {project.companies &&
-                (project.companies.mission ||
-                  project.companies.vision ||
-                  project.companies.products_services) && (
-                  <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      회사 정보
-                    </p>
-                    <div className="space-y-2.5 text-sm">
-                      {project.companies.mission && (
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">
-                            미션
-                          </p>
-                          <p className="text-sm leading-relaxed">
-                            {project.companies.mission}
-                          </p>
-                        </div>
-                      )}
-                      {project.companies.vision && (
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">
-                            비전
-                          </p>
-                          <p className="text-sm leading-relaxed">
-                            {project.companies.vision}
-                          </p>
-                        </div>
-                      )}
-                      {project.companies.products_services && (
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">
-                            주요 제품/서비스
-                          </p>
-                          <p className="text-sm leading-relaxed">
-                            {project.companies.products_services}
-                          </p>
+                          {/* 직접 입력한 필드가 있을 때만 저장 버튼 표시 */}
+                          {(companyInfoDraft.mission.trim() ||
+                            companyInfoDraft.vision.trim() ||
+                            companyInfoDraft.products_services.trim()) && (
+                            <button
+                              disabled={savingCompanyInfo}
+                              onClick={async () => {
+                                setSavingCompanyInfo(true);
+                                const merged = {
+                                  mission:
+                                    project.companies?.mission ??
+                                    companyInfoDraft.mission,
+                                  vision:
+                                    project.companies?.vision ??
+                                    companyInfoDraft.vision,
+                                  products_services:
+                                    project.companies?.products_services ??
+                                    companyInfoDraft.products_services,
+                                };
+                                await api.updateProject(project.id, {
+                                  company_research: merged,
+                                } as Partial<Project>);
+                                setProject({
+                                  ...project,
+                                  companies: {
+                                    ...(project.companies ?? {
+                                      id: 0,
+                                      name: project.job_analysis?.company ?? "",
+                                      employee_count: null,
+                                      revenue_billion: null,
+                                      company_size: null,
+                                    }),
+                                    ...merged,
+                                  },
+                                });
+                                setSavingCompanyInfo(false);
+                              }}
+                              className="text-xs text-primary hover:text-primary/80 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              {savingCompanyInfo ? "저장 중..." : "저장"}
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
                   </div>
-                )}
+                  {/* end 2-column grid */}
 
-              {/* 채용공고 원문 */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-muted-foreground">
-                    채용공고 원문
-                  </p>
-                  {project.job_posting && !editingJobPosting && (
-                    <button
-                      onClick={() => {
-                        setJobPostingDraft(project.job_posting);
-                        setEditingJobPosting(true);
-                      }}
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      수정
-                    </button>
-                  )}
-                  {editingJobPosting && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setEditingJobPosting(false)}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        취소
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (!jobPostingDraft.trim()) return;
-                          // 재분석 후 저장
-                          const analysis =
-                            await api.analyzeJob(jobPostingDraft);
-                          await api.updateProject(project.id, {
-                            job_posting: jobPostingDraft,
-                            job_analysis: analysis,
-                          } as Partial<Project>);
-                          setProject({
-                            ...project,
-                            job_posting: jobPostingDraft,
-                            job_analysis: analysis,
-                          });
-                          setEditingJobPosting(false);
-                        }}
-                        className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
-                      >
-                        저장 및 재분석
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 비어있으면 입력 UI */}
-                {!project.job_posting && !editingJobPosting ? (
-                  <div className="rounded-lg border border-dashed border-yellow-500/40 bg-yellow-500/5 p-5 text-center space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      채용공고 원문이 저장되지 않았습니다
-                    </p>
-                    <div className="flex justify-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setJobPostingDraft("");
-                          setEditingJobPosting(true);
-                        }}
-                      >
-                        텍스트 입력
-                      </Button>
-                      <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-input text-xs font-medium cursor-pointer hover:bg-accent transition-colors">
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={1.5}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
-                          />
-                        </svg>
-                        이미지 / PDF 업로드
-                        <input
-                          type="file"
-                          accept=".png,.jpg,.jpeg,.webp,.gif,.pdf"
-                          className="sr-only"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const res = await api.parseImage(file);
-                            const isRefusal =
-                              /i'm sorry|i apologize|sorry,|죄송합니다|정책상|can't assist/i.test(
-                                res.text ?? "",
-                              );
-                            if (isRefusal) {
-                              setShowPolicyError(true);
-                              return;
-                            }
-                            setJobPostingDraft(res.text);
+                  {/* 채용공고 원문 */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        채용공고 원문
+                      </p>
+                      {project.job_posting && !editingJobPosting && (
+                        <button
+                          onClick={() => {
+                            setJobPostingDraft(project.job_posting);
                             setEditingJobPosting(true);
                           }}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                ) : editingJobPosting ? (
-                  <Textarea
-                    value={jobPostingDraft}
-                    onChange={(e) => setJobPostingDraft(e.target.value)}
-                    rows={10}
-                    className="resize-none text-sm"
-                    placeholder="채용공고 전문을 붙여넣으세요..."
-                    autoFocus
-                  />
-                ) : (
-                  <div className="whitespace-pre-wrap text-sm text-muted-foreground bg-card rounded-lg p-4 max-h-72 overflow-y-auto border border-border">
-                    {project.job_posting}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end">
-                <Button
-                  onClick={() => setActiveStep(2)}
-                  disabled={!isStepComplete(1)}
-                >
-                  다음
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: 이력서 */}
-          {activeStep === 2 && (
-            <div className="animate-fade-in space-y-5">
-              <div>
-                <h3 className="text-base font-semibold">이력서</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  저장된 이력서를 선택하거나 직접 입력하세요.
-                </p>
-              </div>
-
-              {resumes.length > 0 && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-muted-foreground">
-                    저장된 이력서
-                  </p>
-                  <div className="grid grid-cols-1 gap-2">
-                    {resumes.map((r) => (
-                      <button
-                        key={r.id}
-                        onClick={() => {
-                          setSelectedResumeId(
-                            selectedResumeId === r.id ? null : r.id,
-                          );
-                          if (selectedResumeId !== r.id) setResumeText("");
-                        }}
-                        disabled={isLoading}
-                        className={`
-                          flex items-center gap-3 px-4 py-3 rounded-lg border text-left transition-all
-                          ${
-                            selectedResumeId === r.id
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/50 hover:bg-accent/30"
-                          }
-                        `}
-                      >
-                        <span
-                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                            selectedResumeId === r.id
-                              ? "border-primary bg-primary"
-                              : "border-muted-foreground/30"
-                          }`}
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                         >
-                          {selectedResumeId === r.id && (
-                            <span className="w-2 h-2 rounded-full bg-primary-foreground" />
-                          )}
-                        </span>
-                        <div>
-                          <p className="text-sm font-medium">{r.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(r.updated_at).toLocaleDateString("ko-KR")}
-                          </p>
+                          수정
+                        </button>
+                      )}
+                      {editingJobPosting && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setEditingJobPosting(false)}
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            취소
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!jobPostingDraft.trim()) return;
+                              // 재분석 후 저장
+                              const analysis =
+                                await api.analyzeJob(jobPostingDraft);
+                              await api.updateProject(project.id, {
+                                job_posting: jobPostingDraft,
+                                job_analysis: analysis,
+                              } as Partial<Project>);
+                              setProject({
+                                ...project,
+                                job_posting: jobPostingDraft,
+                                job_analysis: analysis,
+                              });
+                              setEditingJobPosting(false);
+                            }}
+                            className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                          >
+                            저장 및 재분석
+                          </button>
                         </div>
-                      </button>
-                    ))}
-                  </div>
-                  <Separator />
-                  <p className="text-sm font-medium text-muted-foreground">
-                    또는 직접 입력
-                  </p>
-                </div>
-              )}
+                      )}
+                    </div>
 
-              <Textarea
-                placeholder={
-                  selectedResumeId
-                    ? "저장된 이력서가 선택되었습니다."
-                    : "이력서 내용을 붙여넣으세요..."
-                }
-                value={resumeText}
-                onChange={(e) => {
-                  setResumeText(e.target.value);
-                  setSelectedResumeId(null);
-                }}
-                rows={resumes.length > 0 ? 5 : 10}
-                disabled={isLoading || !!selectedResumeId}
-                className="resize-none"
-              />
-
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setActiveStep(1)}>
-                  이전
-                </Button>
-                <Button
-                  onClick={handleSaveResume}
-                  disabled={!(selectedResumeId || resumeText)}
-                >
-                  다음
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: 작성 설정 */}
-          {activeStep === 3 && (
-            <div className="animate-fade-in space-y-5">
-              <div>
-                <h3 className="text-base font-semibold">작성 설정</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  모드를 선택하고 옵션을 설정하세요.
-                </p>
-              </div>
-
-              {/* Mode */}
-              <div className="space-y-3">
-                <p className="text-sm font-medium text-muted-foreground">
-                  작성 모드
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setMode("general")}
-                    className={`px-4 py-4 rounded-lg border text-left transition-all ${
-                      mode === "general"
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50 hover:bg-accent/30"
-                    }`}
-                  >
-                    <p className="text-sm font-medium mb-1">일반 자소서</p>
-                    <p className="text-xs text-muted-foreground">
-                      지원동기, 역량, 경험, 포부 포함
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => setMode("question")}
-                    className={`px-4 py-4 rounded-lg border text-left transition-all ${
-                      mode === "question"
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50 hover:bg-accent/30"
-                    }`}
-                  >
-                    <p className="text-sm font-medium mb-1">질문 답변</p>
-                    <p className="text-xs text-muted-foreground">
-                      특정 질문에 대한 맞춤 답변
-                    </p>
-                  </button>
-                </div>
-              </div>
-
-              {mode === "question" && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">
-                    질문
-                  </p>
-                  <Textarea
-                    placeholder="예: 팀워크를 발휘해 공동 목표 달성에 기여한 경험을 서술하세요."
-                    value={question}
-                    onChange={(e) => setQuestion(e.target.value)}
-                    rows={3}
-                    disabled={isLoading}
-                    className="resize-none"
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">
-                  글자수 제한 <span className="text-destructive">*</span>
-                </p>
-                <input
-                  type="number"
-                  placeholder="예: 800"
-                  value={charLimit}
-                  onChange={(e) => setCharLimit(e.target.value)}
-                  className={`w-full h-10 rounded-lg border bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring ${!charLimit ? "border-destructive/50" : "border-input"}`}
-                  disabled={isLoading}
-                />
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 space-y-1">
-                  <p className="text-xs font-medium text-amber-400">
-                    글자수 안내
-                  </p>
-                  <ul className="text-xs text-muted-foreground space-y-0.5">
-                    <li>· 일반적으로 800자, 최대 1000자 이내가 많습니다.</li>
-                    <li>
-                      · 회사마다 제한이 다를 수 있으니 채용공고를 꼭 확인하세요.
-                    </li>
-                  </ul>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Summary */}
-              <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-                <p className="text-sm font-medium">생성 요약</p>
-                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-                  <span className="text-muted-foreground">회사</span>
-                  <span>{company}</span>
-                  <span className="text-muted-foreground">직무</span>
-                  <span>{position}</span>
-                  <span className="text-muted-foreground">이력서</span>
-                  <span>
-                    {selectedResumeId
-                      ? resumes.find((r) => r.id === selectedResumeId)?.name
-                      : `직접 입력 (${resumeText.length}자)`}
-                  </span>
-                  <span className="text-muted-foreground">모드</span>
-                  <span>
-                    {mode === "general" ? "일반 자소서" : "질문 답변"}
-                  </span>
-                  {charLimit && (
-                    <>
-                      <span className="text-muted-foreground">글자수</span>
-                      <span>{charLimit}자</span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {error && (
-                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3">
-                  <p className="text-sm text-destructive">{error}</p>
-                </div>
-              )}
-
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setActiveStep(2)}>
-                  이전
-                </Button>
-                <Button
-                  onClick={handleGenerate}
-                  disabled={
-                    isLoading ||
-                    !charLimit ||
-                    (mode === "question" && !question)
-                  }
-                >
-                  자소서 생성하기
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 4: 결과 */}
-          {activeStep === 4 && (
-            <div className="animate-fade-in space-y-6">
-              <div>
-                <h3 className="text-base font-semibold">결과</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {genStep === "generating"
-                    ? "자소서를 생성하고 있습니다..."
-                    : genStep === "evaluating"
-                      ? "9명의 AI 평가관이 평가 중입니다..."
-                      : "생성된 자소서와 평가 결과입니다."}
-                </p>
-              </div>
-
-              {/* Loading */}
-              {genStep === "generating" && !answer && (
-                <div className="flex flex-col items-center justify-center py-16 gap-4">
-                  <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                  <p className="text-sm text-muted-foreground">
-                    합격 자소서 데이터를 검색하고 생성 중...
-                  </p>
-                </div>
-              )}
-
-              {/* 버전 스위처 */}
-              {versions.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-muted-foreground">버전</span>
-                  {versions.map((v, i) => (
-                    <Button
-                      key={v.id}
-                      size="sm"
-                      variant={
-                        selectedVersionId === v.id ? "default" : "outline"
-                      }
-                      className="h-7 px-3 text-xs"
-                      onClick={() => {
-                        setAnswer(v.answer);
-                        setCharCount(v.answer.length);
-                        setEvalResult(v.evaluation);
-                        setSelectedVersionId(v.id);
-                        setEvalEvents([]);
-                      }}
-                    >
-                      v{i + 1}
-                      {v.evaluation?.overall_pass_probability != null &&
-                        ` · ${Math.round(v.evaluation.overall_pass_probability * 100)}%`}
-                    </Button>
-                  ))}
-                </div>
-              )}
-
-              {/* Answer + Evaluation 병렬 레이아웃 */}
-              {answer && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* 왼쪽: 자소서 + 주요 피드백 */}
-                  <div className="space-y-6">
-                    <Card>
-                      <CardContent className="pt-5">
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-sm font-medium">생성된 자소서</p>
-                          {charLimit && (
-                            <Badge
-                              variant={
-                                charCount > parseInt(charLimit)
-                                  ? "destructive"
-                                  : "secondary"
-                              }
-                            >
-                              {charCount}/{charLimit}자
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="whitespace-pre-wrap text-sm leading-relaxed bg-accent/10 rounded-lg p-4 border border-border">
-                          {answer}
-                        </div>
-                        <div className="flex gap-2 mt-3">
+                    {/* 비어있으면 입력 UI */}
+                    {!project.job_posting && !editingJobPosting ? (
+                      <div className="rounded-lg border border-dashed border-yellow-500/40 bg-yellow-500/5 p-5 text-center space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                          채용공고 원문이 저장되지 않았습니다
+                        </p>
+                        <div className="flex justify-center gap-2">
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() =>
-                              navigator.clipboard.writeText(answer)
-                            }
+                            onClick={() => {
+                              setJobPostingDraft("");
+                              setEditingJobPosting(true);
+                            }}
                           >
-                            복사
+                            텍스트 입력
                           </Button>
-                          {(genStep === "done" || isLoading) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={handleRegenerate}
-                              disabled={
-                                versions.length >= MAX_REGENERATIONS ||
-                                isLoading
-                              }
-                              title={
-                                versions.length >= MAX_REGENERATIONS
-                                  ? "재생성은 최대 5회까지 가능합니다"
-                                  : undefined
-                              }
+                          <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-input text-xs font-medium cursor-pointer hover:bg-accent transition-colors">
+                            <svg
+                              className="w-3.5 h-3.5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={1.5}
                             >
-                              피드백 반영 재생성
-                              {versions.length > 0
-                                ? ` (${versions.length}/5)`
-                                : ""}
-                            </Button>
-                          )}
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+                              />
+                            </svg>
+                            이미지 / PDF 업로드
+                            <input
+                              type="file"
+                              accept=".png,.jpg,.jpeg,.webp,.gif,.pdf"
+                              className="sr-only"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const res = await api.parseImage(file);
+                                const isRefusal =
+                                  /i'm sorry|i apologize|sorry,|죄송합니다|정책상|can't assist/i.test(
+                                    res.text ?? "",
+                                  );
+                                if (isRefusal) {
+                                  setShowPolicyError(true);
+                                  return;
+                                }
+                                setJobPostingDraft(res.text);
+                                setEditingJobPosting(true);
+                              }}
+                            />
+                          </label>
                         </div>
-                      </CardContent>
-                    </Card>
-                    {evalResult && <EvaluationFeedback result={evalResult} />}
-                  </div>
-
-                  {/* 오른쪽: 통과 확률 + 평가 결과 */}
-                  <div className="space-y-6">
-                    {genStep === "evaluating" && evalEvents.length > 0 && (
-                      <EvaluationStream events={evalEvents} />
+                      </div>
+                    ) : editingJobPosting ? (
+                      <Textarea
+                        value={jobPostingDraft}
+                        onChange={(e) => setJobPostingDraft(e.target.value)}
+                        rows={10}
+                        className="resize-none text-sm"
+                        placeholder="채용공고 전문을 붙여넣으세요..."
+                        autoFocus
+                      />
+                    ) : (
+                      <div className="whitespace-pre-wrap text-sm text-muted-foreground bg-card rounded-lg p-4 max-h-72 overflow-y-auto border border-border">
+                        {project.job_posting}
+                      </div>
                     )}
-                    {evalResult && <EvaluationCard result={evalResult} />}
                   </div>
-                </div>
+
+                  <div className="flex justify-between">
+                    <Button variant="outline" disabled className="invisible">
+                      이전
+                    </Button>
+                    <Button
+                      onClick={() => setActiveStep(2)}
+                      disabled={!isStepComplete(1) || researchingCompany}
+                    >
+                      다음
+                    </Button>
+                  </div>
+                </motion.div>
               )}
 
-              {error && (
-                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3">
-                  <p className="text-sm text-destructive">{error}</p>
-                </div>
+              {/* Step 2: 이력서 */}
+              {activeStep === 2 && (
+                <motion.div
+                  key="step2"
+                  variants={stepContentVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  className="space-y-5"
+                >
+                  <div>
+                    <h3 className="font-heading text-xl text-foreground">
+                      이력서
+                    </h3>
+                  </div>
+
+                  <div
+                    className={`grid gap-6 ${resumes.length > 0 ? "grid-cols-2" : "grid-cols-1"}`}
+                  >
+                    {resumes.length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-muted-foreground">
+                          저장된 이력서
+                        </p>
+                        <div className="grid grid-cols-1 gap-2">
+                          {resumes.map((r) => (
+                            <button
+                              key={r.id}
+                              onClick={async () => {
+                                const newId =
+                                  selectedResumeId === r.id ? null : r.id;
+                                setSelectedResumeId(newId);
+                                if (newId) {
+                                  setResumeText("");
+                                  try {
+                                    const full = await api.getResume(newId);
+                                    setResumeStructured(
+                                      full.structured_data ?? null,
+                                    );
+                                  } catch {
+                                    setResumeStructured(null);
+                                  }
+                                } else {
+                                  setResumeStructured(null);
+                                }
+                              }}
+                              disabled={isLoading}
+                              className={`
+                                flex items-center gap-3 px-4 py-3 rounded-lg border text-left transition-all
+                                ${
+                                  selectedResumeId === r.id
+                                    ? "border-primary bg-primary/5"
+                                    : "border-border hover:border-primary/50 hover:bg-accent/30"
+                                }
+                              `}
+                            >
+                              <span
+                                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                  selectedResumeId === r.id
+                                    ? "border-primary bg-primary"
+                                    : "border-muted-foreground/30"
+                                }`}
+                              >
+                                {selectedResumeId === r.id && (
+                                  <span className="w-2 h-2 rounded-full bg-primary-foreground" />
+                                )}
+                              </span>
+                              <div>
+                                <p className="text-sm font-medium">{r.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {new Date(r.updated_at).toLocaleDateString(
+                                    "ko-KR",
+                                  )}
+                                </p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      {resumes.length > 0 && (
+                        <p className="text-sm font-medium text-muted-foreground">
+                          직접 입력
+                        </p>
+                      )}
+                      <Textarea
+                        placeholder={
+                          selectedResumeId
+                            ? "저장된 이력서가 선택되었습니다."
+                            : "이력서 내용을 붙여넣으세요..."
+                        }
+                        value={resumeText}
+                        onChange={(e) => {
+                          setResumeText(e.target.value);
+                          setSelectedResumeId(null);
+                        }}
+                        rows={10}
+                        disabled={isLoading || !!selectedResumeId}
+                        className="resize-none min-h-[200px] max-h-[300px]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <Button variant="outline" onClick={() => setActiveStep(1)}>
+                      이전
+                    </Button>
+                    <Button
+                      onClick={handleSaveResume}
+                      disabled={!(selectedResumeId || resumeText)}
+                    >
+                      다음
+                    </Button>
+                  </div>
+                </motion.div>
               )}
-            </div>
-          )}
+
+              {/* Step 3: 작성 설정 */}
+              {activeStep === 3 && (
+                <motion.div
+                  key="step3"
+                  variants={stepContentVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  className="space-y-5"
+                >
+                  <div>
+                    <h3 className="font-heading text-xl text-foreground">
+                      작성 설정
+                    </h3>
+                  </div>
+
+                  {/* 라벨 행 */}
+                  <div className="grid grid-cols-2 gap-6">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      작성 모드
+                    </p>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      글자수
+                    </p>
+                  </div>
+
+                  {/* 콘텐츠 — 같은 grid row로 높이 자동 일치 */}
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3 items-stretch">
+                    {/* Row 1: 일반 자소서 / 글자수 input */}
+                    <button
+                      onClick={() => setMode("general")}
+                      className={`px-4 py-4 rounded-lg border text-left transition-all ${
+                        mode === "general"
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/50 hover:bg-accent/30"
+                      }`}
+                    >
+                      <p className="text-sm font-medium mb-1">일반 작성</p>
+                      <p className="text-xs text-muted-foreground">
+                        지원동기, 역량, 경험, 포부 포함
+                      </p>
+                    </button>
+                    <input
+                      type="number"
+                      placeholder="예: 800"
+                      value={charLimit}
+                      onChange={(e) => setCharLimit(e.target.value)}
+                      className={`w-full rounded-lg border bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring ${!charLimit ? "border-destructive/50" : "border-input"}`}
+                      disabled={isLoading}
+                    />
+
+                    {/* Row 2: 질문 답변 / 글자수 안내 */}
+                    <button
+                      onClick={() => setMode("question")}
+                      className={`px-4 py-4 rounded-lg border text-left transition-all ${
+                        mode === "question"
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/50 hover:bg-accent/30"
+                      }`}
+                    >
+                      <p className="text-sm font-medium mb-1">질문 기반 작성</p>
+                      <p className="text-xs text-muted-foreground">
+                        특정 질문에 대한 맞춤 답변
+                      </p>
+                    </button>
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 space-y-1">
+                      <p className="text-xs font-medium text-foreground">
+                        글자수 안내
+                      </p>
+                      <ul className="text-xs text-muted-foreground space-y-0.5">
+                        <li>
+                          · 일반적으로 800자, 최대 1000자 이내가 많습니다.
+                        </li>
+                        <li>
+                          · 회사마다 제한이 다를 수 있으니 채용공고를 꼭
+                          확인하세요.
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {mode === "question" && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        질문
+                      </p>
+                      <Textarea
+                        placeholder="예: 팀워크를 발휘해 공동 목표 달성에 기여한 경험을 서술하세요."
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        rows={3}
+                        disabled={isLoading}
+                        className="resize-none"
+                      />
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3">
+                      <p className="text-sm text-destructive">{error}</p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between">
+                    <Button variant="outline" onClick={() => setActiveStep(2)}>
+                      이전
+                    </Button>
+                    <Button
+                      onClick={handleGenerate}
+                      disabled={
+                        isLoading ||
+                        !charLimit ||
+                        (mode === "question" && !question)
+                      }
+                    >
+                      자소서 생성하기
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Step 4: 결과 */}
+              {activeStep === 4 && (
+                <motion.div
+                  key="step4"
+                  variants={stepContentVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  className="space-y-6"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-heading text-xl text-foreground">
+                        결과
+                      </h3>
+                      {(genStep === "generating" ||
+                        genStep === "evaluating") && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {genStep === "generating"
+                            ? "자소서를 생성하고 있습니다..."
+                            : "9명의 AI 평가관이 평가 중입니다..."}
+                        </p>
+                      )}
+                    </div>
+                    {versions.length > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                        {versions.map((v, i) => (
+                          <Button
+                            key={v.id}
+                            size="sm"
+                            variant={
+                              selectedVersionId === v.id ? "default" : "outline"
+                            }
+                            className="h-7 px-3 text-xs"
+                            onClick={() => {
+                              setAnswer(v.answer);
+                              setCharCount(v.answer.length);
+                              setEvalResult(v.evaluation);
+                              setSelectedVersionId(v.id);
+                              setEvalEvents([]);
+                            }}
+                          >
+                            V{i + 1}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Loading */}
+                  {genStep === "generating" && !answer && (
+                    <div className="flex flex-col items-center justify-center py-16 gap-4">
+                      <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                      <p className="text-sm text-muted-foreground">
+                        합격 자소서 데이터를 검색하고 생성 중...
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Answer + Evaluation 병렬 레이아웃 */}
+                  {answer && (
+                    <motion.div
+                      className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+                      initial="hidden"
+                      animate="visible"
+                      variants={{
+                        hidden: { opacity: 0 },
+                        visible: {
+                          opacity: 1,
+                          transition: { staggerChildren: 0.1 },
+                        },
+                      }}
+                    >
+                      {/* 왼쪽: 자소서 + 주요 피드백 */}
+                      <motion.div
+                        className="space-y-6"
+                        variants={resultItemVariants}
+                      >
+                        <Card className="border-border shadow-sm">
+                          <CardContent className="pt-5">
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-lg font-bold text-foreground">
+                                생성된 자소서
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    navigator.clipboard.writeText(answer)
+                                  }
+                                >
+                                  복사
+                                </Button>
+                                {charLimit && (
+                                  <Badge
+                                    variant={
+                                      charCount > parseInt(charLimit)
+                                        ? "destructive"
+                                        : "secondary"
+                                    }
+                                    className={
+                                      charCount > parseInt(charLimit)
+                                        ? ""
+                                        : "bg-muted text-muted-foreground border-0"
+                                    }
+                                  >
+                                    {charCount}/{charLimit}자
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            <Textarea
+                              value={answer}
+                              onChange={(e) => {
+                                setAnswer(e.target.value);
+                                setCharCount(e.target.value.length);
+                              }}
+                              className="text-sm leading-relaxed bg-muted/40 min-h-[300px] resize-y"
+                            />
+                            {(genStep === "done" || isLoading) && (
+                              <div className="flex items-start justify-between mt-3 gap-4">
+                                <ul className="text-xs text-muted-foreground space-y-0.5 pt-0.5">
+                                  {/* prettier-ignore */}
+                                  <li>1. LLM 할루시네이션의 위험이 있습니다.</li>
+                                  {/* prettier-ignore */}
+                                  <li>2. 자소서를 직접 수정하면 재생성 시 반영됩니다.</li>
+                                  {/* prettier-ignore */}
+                                  <li className="text-foreground/60 font-semibold">꼭 읽어보시고 수정하세요.</li>
+                                </ul>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleRegenerate}
+                                  disabled={regenLimitReached || isLoading}
+                                  title={
+                                    usage?.limits.regenerations === 0
+                                      ? "Free 플랜에서는 재생성이 불가합니다. 업그레이드하세요."
+                                      : regenLimitReached
+                                        ? "이번 달 재생성 횟수를 모두 사용했습니다"
+                                        : undefined
+                                  }
+                                  className="flex flex-col items-end leading-tight h-auto py-2"
+                                >
+                                  <span>피드백 반영 재생성</span>
+                                  {usage && usage.limits.regenerations > 0 && (
+                                    <span className="text-xs text-muted-foreground">
+                                      ({usage.usage.regenerations}/
+                                      {usage.limits.regenerations})
+                                    </span>
+                                  )}
+                                </Button>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                        {evalResult && (
+                          <EvaluationFeedback result={evalResult} />
+                        )}
+                      </motion.div>
+
+                      {/* 오른쪽: 통과 확률 + 평가 결과 */}
+                      <motion.div
+                        className="space-y-6"
+                        variants={resultItemVariants}
+                      >
+                        {genStep === "evaluating" && evalEvents.length > 0 && (
+                          <EvaluationStream events={evalEvents} />
+                        )}
+                        {evalResult && <EvaluationCard result={evalResult} />}
+                        {genStep === "done" &&
+                          !evalResult &&
+                          usage?.plan === "free" &&
+                          answer && (
+                            <Card className="border-primary/30 bg-primary/5">
+                              <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                                  <svg
+                                    className="h-6 w-6 text-primary"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+                                    />
+                                  </svg>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <p className="font-semibold text-foreground">
+                                    9인 AI 평가는 Pro 플랜 이상에서 사용할 수
+                                    있습니다
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    HR 담당자, 현업 팀장, 채용 리더 9명의 평가와
+                                    <br />
+                                    서류 통과 확률을 확인해보세요.
+                                  </p>
+                                </div>
+                                <Button
+                                  onClick={() => router.push("/pricing")}
+                                  className="mt-1"
+                                >
+                                  플랜 업그레이드
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          )}
+                      </motion.div>
+                    </motion.div>
+                  )}
+
+                  {error && (
+                    <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+                      <p className="text-sm text-rose-700">{error}</p>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
