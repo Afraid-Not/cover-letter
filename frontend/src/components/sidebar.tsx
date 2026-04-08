@@ -116,14 +116,14 @@ export const Sidebar = () => {
         {/* Logo */}
         <div className="px-4 py-5 flex items-center gap-3">
           <Image
-            src="/logo.png"
-            alt="AURA"
+            src="/logo.svg"
+            alt="합격"
             width={40}
             height={29}
             className="shrink-0"
           />
           <h1 className="text-xl font-semibold tracking-widest whitespace-nowrap font-heading text-primary">
-            AURA
+            합격
           </h1>
         </div>
 

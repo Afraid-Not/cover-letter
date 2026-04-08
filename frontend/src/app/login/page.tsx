@@ -6,6 +6,7 @@ import Image from "next/image";
 import { SignInPage } from "@/components/ui/sign-in";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,7 +21,7 @@ export default function LoginPage() {
   };
 
   const handleKakaoLogin = () => {
-    setError("카카오 로그인은 현재 준비 중입니다.");
+    toast.info("카카오 로그인은 현재 준비 중입니다.");
   };
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -54,9 +55,15 @@ export default function LoginPage() {
   return (
     <SignInPage
       title={
-        <Image src="/logo.png" alt="AURA" width={96} height={33} priority />
+        <Image
+          src="/logo.svg"
+          alt="합격"
+          width={220}
+          height={76}
+          style={{ width: "220px", height: "auto" }}
+          priority
+        />
       }
-      description="9명의 AI 평가관이 당신의 자소서를 심사합니다"
       heroImageSrc="/login-page.png"
       onSignIn={handleSignIn}
       onCreateAccount={() => router.push("/signup")}

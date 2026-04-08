@@ -55,7 +55,7 @@ const PLANS: {
     sublabel: "무료 체험",
     price: "₩0",
     period: "/ 월",
-    desc: "AURA를 부담 없이 경험하세요",
+    desc: "합격을 부담 없이 경험하세요",
     features: [
       "이력서 1개 등록",
       "월 5회 자소서 생성",
@@ -207,7 +207,7 @@ function PricingContent() {
         {/* Header */}
         <motion.div variants={item} className="text-center space-y-3">
           <p className="text-xs font-semibold tracking-widest text-primary uppercase">
-            AURA Pricing
+            합격 Pricing
           </p>
           <h1 className="font-heading text-4xl md:text-5xl text-foreground">
             플랜을 선택하세요

@@ -1,4 +1,4 @@
-# AURA — Cover Letter Generator
+# 합격 — Cover Letter Generator
 
 ## 프로젝트 개요
 
@@ -44,7 +44,7 @@ cover-letter/
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /payments/success, /payments/fail, /auth/callback
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /onboarding, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /admin, /auth/callback, /payments/success, /payments/fail
 │       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
 │       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, card, dialog…
 │       ├── hooks/            # use-navigation-guard (작업 중 브라우저 이탈 차단)
@@ -54,15 +54,18 @@ cover-letter/
 │   ├── 003_match_companies_function.sql
 │   ├── 004_add_plan_usage_tracking.sql  # profiles 플랜 컬럼 + is_regeneration 플래그
 │   ├── 005_avatars_storage.sql        # profiles avatar_url/bio 컬럼 + avatars 스토리지 버킷 + RLS
+│   ├── 006_fix_rls_policies.sql       # RLS 정책 보완 (resumes DELETE + profiles with_check 명시)
+│   ├── 007_admin.sql                  # profiles.role, extra_regenerations, app_settings 테이블
 │   ├── 008_subscriptions.sql          # subscriptions 테이블 (구독 결제 정보)
 │   ├── 009_coupons.sql                # coupons 테이블 + profiles.extra_generations 컬럼
 │   ├── 010_soft_delete_projects.sql   # generations.deleted_at 컬럼 (소프트 삭제)
-│   └── 011_company_search_credits.sql # profiles.extra_company_searches + coupons.bonus_company_searches
+│   ├── 011_company_search_credits.sql # profiles.extra_company_searches + coupons.bonus_company_searches
+│   └── 012_birth_date.sql             # profiles.birth_date 컬럼 추가
 ├── email-templates/          # Supabase Auth 이메일 템플릿 (가입 인증)
 ├── data/data.txt             # 합격 자소서 39건 원본
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
-├── .env                      # SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, TAVILY_API_KEY, DART_API_KEY, TOSS_SECRET_KEY
-├── frontend/.env.local       # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+├── .env                      # SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, TAVILY_API_KEY, DART_API_KEY, TOSS_CLIENT_KEY, TOSS_SECRET_KEY, CRON_SECRET, ALLOWED_ORIGINS
+├── frontend/.env.local       # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_API_URL
 └── PLAN.md                   # 상세 기획 문서
 ```
 
@@ -79,6 +82,7 @@ cover-letter/
   - `plan` — free / pro / enterprise (기본값 free)
   - `job_seeker_status` — 신입 / 경력
   - `years_of_experience`, `education_level`, `education_major`
+  - `birth_date` — 생년월일 (DATE, 회원가입 시 수집, 서류 통과 확률 나이 보정에 사용)
   - `job_embedding` — 직무명 벡터 (유사도 검색용)
   - `avatar_url` — 프로필 사진 URL (Supabase Storage avatars 버킷)
   - `bio` — 자기소개 (최대 200자)
@@ -91,7 +95,7 @@ cover-letter/
 
 ## 주요 설계 결정
 
-- 채용공고 URL 스크래핑 안 함 → 텍스트 복붙 또는 스크린샷(GPT-4o Vision) 업로드
+- 채용공고 URL 스크래핑 안 함 → 텍스트 복붙 또는 스크린샷(Claude Haiku 4.5 Vision) 업로드
 - Parent-Child Chunking: Child(Q&A)에서 검색, Parent(전체)로 컨텍스트 제공
 - 9명 평가관: 3그룹(HR/현업팀장/채용리더) × 3명, 채용공고 기반 동적 백그라운드
 - 평가 SSE 스트리밍: 각 평가관 결과를 실시간으로 프론트에 전달
@@ -109,7 +113,7 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 
 - **대학 티어**: SKY(+10) → 서성한/KAIST/POSTECH(+8) → 중경외시/과기원(+5) → 건동홍숙이(+3) 등
 - **전공 관련도**: 직접 관련(+5) / 유사(+2) / 무관(-3)
-- **나이/직급**: 직급-연령 적정성 보정
+- **나이/직급**: 직급-연령 적정성 보정 (프로필 `birth_date`에서 만 나이 계산, 없으면 이력서 졸업연도 추정 fallback)
 - **학력**: 박사(+5) / 석사(+3) / 학사(0) / 전문학사(-2)
 - **기업규모**: 대기업/중견기업/중소기업별 가중치 multiplier 적용
 
@@ -140,6 +144,7 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - **테마**: Soft/Pastel 다크 — 라벤더/바이올렛 톤 (primary hue 290)
 - **다크모드 색상**: background `oklch(0.135)`, card `oklch(0.26)`, border `oklch(0.32)` — 충분한 명도 차이 확보
 - **네비게이션**: 상단 고정 Navbar (로고 + 메뉴 + 현재 플랜 배지 + 마이페이지 링크 + 플랜 업그레이드 버튼 + 로그아웃), 사이드바는 프로젝트 상세 페이지에서만 사용; 이력서 미등록 시 등록 유도 툴팁 표시
+- **회원가입 2단계**: 이름, 생년월일(date picker), 전화번호, 약관 동의
 - **웰컴 페이지** (`/welcome`): Framer Motion stagger 카드 애니메이션으로 핵심 기능 소개
 - **마이페이지** (`/mypage`): MetricCard + UsageBar 컴포넌트, 프로필 인라인 편집 (이름/희망직무/자기소개), 아바타 업로드 (카메라 아이콘 오버레이, Supabase Storage), Framer Motion stagger
 - **요금제 페이지** (`/pricing`): Free/Pro/Enterprise 3-tier 비교 카드, 플랜 선택 + toast 알림
@@ -149,7 +154,7 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - **Step 1 레이아웃**: 채용 공고 요약 + 회사 정보 2열 그리드 (`grid-cols-2 items-stretch`)
 - **콘텐츠 영역**: max-w-7xl, 넓은 레이아웃
 - **상태 컬러**: draft(gray), ready(sky), generated(amber), evaluated(emerald)
-- **서비스명**: AURA
+- **서비스명**: 합격
 
 ## 관리자 시스템
 
@@ -196,11 +201,13 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 
 - **결제 수단**: Toss Payments 빌링키 방식 정기 구독 결제
 - **요금**: `PLAN_AMOUNTS` — pro=9,900원/월, enterprise=99,000원/월
-- **환경 변수**: `TOSS_SECRET_KEY` (`.env`에 추가 필요)
+- **환경 변수**: `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `CRON_SECRET` (`.env`에 추가 필요)
 - **결제 API** (`api/main.py`):
   - `POST /api/payments/billing-auth` — 빌링키 발급 + 즉시 첫 결제 + 플랜 활성화 (authKey, customerKey, planKey 파라미터)
   - `GET /api/payments/subscription` — 현재 구독 정보 조회
   - `DELETE /api/payments/subscription` — 구독 취소 (status → cancelled)
+  - `POST /api/payments/webhook` — Toss 자동결제 웹훅 (DONE/FAILED 처리)
+  - `POST /api/payments/charge-recurring` — 월별 정기결제 크론 (x-cron-secret 헤더 필요)
 - **결제 페이지**:
   - `/payments/success` — 결제 성공 콜백 처리 (authKey/customerKey/planKey → billingAuth API 호출 → `/welcome` 또는 `/mypage`로 리다이렉트)
   - `/payments/fail` — 결제 실패 안내
@@ -227,17 +234,57 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - 요금제 페이지(`/pricing`) → Free/Pro/Enterprise 비교 + 플랜 변경
 - `/auth/callback` — Google OAuth 리다이렉트 콜백 처리
 
-## 신규 API 엔드포인트 (최신)
+## 전체 API 엔드포인트
 
-| 메서드 | 경로                                           | 설명                                                         |
-| ------ | ---------------------------------------------- | ------------------------------------------------------------ |
-| GET    | `/api/activity`                                | 통합 활동 피드 (프로젝트 생성·이력서 등록·재생성, 최근 30건) |
-| DELETE | `/api/account`                                 | 회원 탈퇴 (service role key로 Auth 유저 삭제)                |
-| PATCH  | `/api/projects/{id}/versions/{vid}`            | 버전 평가 결과 업데이트 (버전 + 루트 행 동시)                |
-| POST   | `/api/coupons/redeem`                          | 쿠폰 사용 (extra\_\* 적립, enterprise 제외, 1인 1회)         |
-| GET    | `/api/admin/coupons`                           | 관리자: 쿠폰 목록 조회                                       |
-| POST   | `/api/admin/coupons`                           | 관리자: 쿠폰 생성 (7일 만료)                                 |
-| PATCH  | `/api/admin/users/{id}/extra-company-searches` | 관리자: 회사 검색 크레딧 설정                                |
+| 메서드 | 경로                                           | 설명                                                     |
+| ------ | ---------------------------------------------- | -------------------------------------------------------- |
+| POST   | `/api/analyze-job`                             | 채용공고 분석 (회사/직무/역량/키워드 추출)               |
+| POST   | `/api/generate`                                | 자소서 생성/재생성 (RAG + 이력서 + 채용공고 + 회사 정보) |
+| POST   | `/api/evaluate`                                | 9명 평가관 평가 (동기)                                   |
+| POST   | `/api/evaluate/stream`                         | 9명 평가관 SSE 스트리밍 평가                             |
+| POST   | `/api/parse-image`                             | 이미지/PDF → 텍스트 추출 (Claude Haiku 4.5 Vision)       |
+| GET    | `/api/check-email`                             | 이메일 중복 확인 (Supabase Auth Admin API)               |
+| GET    | `/api/resumes`                                 | 이력서 목록 조회                                         |
+| POST   | `/api/resumes`                                 | 이력서 등록 (텍스트)                                     |
+| POST   | `/api/resumes/upload`                          | 이력서 파일 업로드 (PDF/txt/md)                          |
+| GET    | `/api/resumes/{id}`                            | 이력서 상세 조회                                         |
+| PATCH  | `/api/resumes/{id}`                            | 이력서 수정 (이름/structured_data)                       |
+| DELETE | `/api/resumes/{id}`                            | 이력서 삭제                                              |
+| POST   | `/api/projects`                                | 프로젝트 생성 (채용공고 → 자동 분석)                     |
+| GET    | `/api/projects`                                | 프로젝트 목록 조회 (소프트 삭제 제외)                    |
+| GET    | `/api/projects/{id}`                           | 프로젝트 상세 + 버전 목록                                |
+| PATCH  | `/api/projects/{id}`                           | 프로젝트 수정 (company_research 포함)                    |
+| DELETE | `/api/projects/{id}`                           | 프로젝트 소프트 삭제                                     |
+| POST   | `/api/projects/{id}/research`                  | 회사 자동 조사 (캐시 → 웹서치)                           |
+| POST   | `/api/projects/{id}/versions`                  | 버전 생성 (재생성)                                       |
+| PATCH  | `/api/projects/{id}/versions/{vid}`            | 버전 평가 결과 업데이트 (버전 + 루트 행 동시)            |
+| GET    | `/api/activity`                                | 통합 활동 피드 (프로젝트·이력서·재생성, 최근 30건)       |
+| GET    | `/api/generations`                             | 생성 이력 목록                                           |
+| POST   | `/api/generations`                             | 생성 이력 저장                                           |
+| GET    | `/api/generations/{id}`                        | 생성 이력 상세                                           |
+| POST   | `/api/profiles`                                | 프로필 생성/수정 (upsert)                                |
+| GET    | `/api/profiles/me`                             | 내 프로필 조회                                           |
+| PATCH  | `/api/profiles/plan`                           | 플랜 변경                                                |
+| GET    | `/api/plan-settings`                           | 플랜 활성 여부 조회 (public)                             |
+| GET    | `/api/usage`                                   | 사용량 + 한도 조회                                       |
+| DELETE | `/api/account`                                 | 회원 탈퇴 (Auth 유저 삭제)                               |
+| POST   | `/api/coupons/redeem`                          | 쿠폰 사용 (extra\_\* 적립, enterprise 제외, 1인 1회)     |
+| POST   | `/api/payments/billing-auth`                   | 빌링키 발급 + 첫 결제 + 플랜 활성화                      |
+| GET    | `/api/payments/subscription`                   | 구독 정보 조회                                           |
+| DELETE | `/api/payments/subscription`                   | 구독 취소                                                |
+| POST   | `/api/payments/webhook`                        | Toss 자동결제 웹훅                                       |
+| POST   | `/api/payments/charge-recurring`               | 월별 정기결제 크론                                       |
+| GET    | `/api/admin/stats`                             | 관리자: KPI 통계                                         |
+| GET    | `/api/admin/users`                             | 관리자: 유저 목록                                        |
+| GET    | `/api/admin/generations`                       | 관리자: 생성 이력 100건                                  |
+| GET    | `/api/admin/resumes`                           | 관리자: 이력서 이력 100건                                |
+| GET    | `/api/admin/settings`                          | 관리자: 설정 조회                                        |
+| PATCH  | `/api/admin/settings`                          | 관리자: 설정 변경                                        |
+| PATCH  | `/api/admin/users/{id}/plan`                   | 관리자: 유저 플랜 변경                                   |
+| PATCH  | `/api/admin/users/{id}/extra-regenerations`    | 관리자: 추가 재생성 횟수 설정                            |
+| PATCH  | `/api/admin/users/{id}/extra-company-searches` | 관리자: 회사 검색 크레딧 설정                            |
+| GET    | `/api/admin/coupons`                           | 관리자: 쿠폰 목록 조회                                   |
+| POST   | `/api/admin/coupons`                           | 관리자: 쿠폰 생성 (7일 만료)                             |
 
 ## 코드 컨벤션
 

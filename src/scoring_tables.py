@@ -385,10 +385,25 @@ def _infer_age(resume: dict) -> int | None:
 # 8. 종합 보정 계산 (외부에서 호출)
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _age_from_birth_date(birth_date_str: str | None) -> int | None:
+    """YYYY-MM-DD 문자열에서 만 나이를 계산한다."""
+    if not birth_date_str:
+        return None
+    try:
+        bd = date.fromisoformat(birth_date_str)
+        today = date.today()
+        age = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+        return age if 15 <= age <= 80 else None
+    except (ValueError, TypeError):
+        return None
+
+
 def compute_score_adjustment(
     resume_structured: dict,
     company_size: str | None,
     job_analysis: dict,
+    *,
+    birth_date_str: str | None = None,
 ) -> dict:
     """이력서 + 기업규모 + 직무분석으로 통과 확률 후처리 보정값을 계산한다.
 
@@ -416,7 +431,7 @@ def compute_score_adjustment(
     school = top_edu.get("school", "")
     major = top_edu.get("major", "")
     degree = _infer_degree(top_edu)
-    age = _infer_age(resume_structured)
+    age = _age_from_birth_date(birth_date_str) or _infer_age(resume_structured)
 
     # 개별 보정값
     univ_base = get_university_adjustment(school)

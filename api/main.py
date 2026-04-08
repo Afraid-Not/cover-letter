@@ -102,6 +102,7 @@ class ResumeRequest(BaseModel):
 class ProfileRequest(BaseModel):
     name: str
     phone: str | None = None
+    birth_date: str | None = None  # YYYY-MM-DD
     job_title: str | None = None
     job_seeker_status: str | None = None  # 신입 or 경력
     years_of_experience: int | None = None
@@ -342,10 +343,22 @@ async def evaluate(req: EvaluateRequest, request: Request):
     result = await evaluate_all(req.question, req.answer, req.job_analysis)
     feedback = aggregate_feedback(result)
 
+    # 프로필에서 birth_date 조회
+    birth_date_str = None
+    if token:
+        uid = _get_user_id(token)
+        if uid:
+            try:
+                sb_bd = _get_sb(token)
+                bd_res = sb_bd.table("profiles").select("birth_date").eq("user_id", uid).single().execute()
+                birth_date_str = (bd_res.data or {}).get("birth_date")
+            except Exception:
+                pass
+
     score_adj = None
     if req.resume_structured:
         score_adj = compute_score_adjustment(
-            req.resume_structured, req.company_size, req.job_analysis
+            req.resume_structured, req.company_size, req.job_analysis, birth_date_str=birth_date_str
         )
         adjusted = round(
             max(0.0, min(100.0, result["overall_pass_probability"] + score_adj["total"])), 1
@@ -364,6 +377,7 @@ async def evaluate_stream_endpoint(req: EvaluateRequest, request: Request):
     from src.evaluator import evaluate_stream as _eval_stream, aggregate_feedback, _summarize_results
 
     token = _extract_token(request)
+    birth_date_str_stream = None
     if token:
         user_id = _get_user_id(token)
         if user_id:
@@ -377,6 +391,11 @@ async def evaluate_stream_endpoint(req: EvaluateRequest, request: Request):
                     extra_regen = 0
                 if extra_regen <= 0:
                     raise HTTPException(status_code=403, detail="PLAN_LIMIT|평가 기능은 Pro 플랜 이상에서 사용할 수 있습니다.")
+            try:
+                bd_res = sb_eval.table("profiles").select("birth_date").eq("user_id", user_id).single().execute()
+                birth_date_str_stream = (bd_res.data or {}).get("birth_date")
+            except Exception:
+                pass
 
     async def event_generator():
         from src.scoring_tables import compute_score_adjustment
@@ -403,7 +422,7 @@ async def evaluate_stream_endpoint(req: EvaluateRequest, request: Request):
             score_adj = None
             if req.resume_structured:
                 score_adj = compute_score_adjustment(
-                    req.resume_structured, req.company_size, req.job_analysis
+                    req.resume_structured, req.company_size, req.job_analysis, birth_date_str=birth_date_str_stream
                 )
                 adjusted = round(
                     max(0.0, min(100.0, summary["overall_pass_probability"] + score_adj["total"])), 1
@@ -1015,6 +1034,7 @@ async def upsert_profile(req: ProfileRequest, request: Request):
         "user_id": user_id,
         "name": req.name,
         "phone": req.phone,
+        "birth_date": req.birth_date,
         "job_title": req.job_title,
         "job_seeker_status": req.job_seeker_status,
         "years_of_experience": req.years_of_experience,

@@ -346,6 +346,7 @@ export const api = {
   saveProfile: async (data: {
     name: string;
     phone?: string;
+    birth_date?: string;
     job_title?: string;
     job_seeker_status?: string;
     years_of_experience?: number;

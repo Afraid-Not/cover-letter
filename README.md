@@ -1,4 +1,4 @@
-# AURA — Cover Letter Generator
+# 합격 — Cover Letter Generator
 
 합격 자소서 기반 RAG + 9명 AI 평가관 자소서 생성 풀스택 앱
 
@@ -10,9 +10,9 @@
 - **글자수 자동 준수** — 지정 글자수 90~100% 범위 엄수, 미달 시 최대 3회 재시도
 - **회사 정보 조사/직접 입력** — OpenAI + Tavily + DART API로 미션/비전/주요 제품·서비스/기업규모 자동 수집; 검색 결과 없을 시 직접 입력 가능, 생성 프롬프트에 컨텍스트로 주입
 - **9명 AI 평가관** — HR 인사담당자 3명 + 현업 팀장 3명 + 채용 리더 3명이 실시간 SSE 스트리밍으로 평가
-- **서류 통과 확률 보정** — 대학 티어/전공/나이/학력/기업규모 기반 후처리 보정 테이블 적용
+- **서류 통과 확률 보정** — 대학 티어/전공/나이/학력/기업규모 기반 후처리 보정 테이블 적용 (프로필 생년월일에서 만 나이 계산, 없으면 이력서 졸업연도 추정 fallback)
 - **2-Column 결과 레이아웃** — 자소서+피드백 / 통과확률+평가카드 좌우 배치
-- **채용공고 분석** — 텍스트 복붙 또는 스크린샷 업로드 (GPT-4o Vision), 분석 결과 인라인 수정 가능
+- **채용공고 분석** — 텍스트 복붙 또는 스크린샷 업로드 (Claude Haiku 4.5 Vision), 분석 결과 인라인 수정 가능
 - **이력서 관리** — PDF/텍스트 업로드, 파싱 후 Supabase에 저장하여 재사용
 - **일반 자소서 / 질문 답변** 모드 지원
 - **피드백 반영 재생성** — 평가 결과 기반 자동 개선
@@ -23,6 +23,7 @@
 - **회사 검색 크레딧** — Free 플랜 유저의 회사 자동 조사 횟수를 크레딧으로 관리
 - **소프트 삭제** — 프로젝트 삭제 시 버전 행 유지로 월별 사용량 카운트 보존
 - **Google OAuth 로그인** — Supabase Auth Google 소셜 로그인 + `/auth/callback` 처리
+- **회원가입 3단계 위자드** — 1단계(이메일/비밀번호) → 2단계(이름/생년월일/전화번호/약관) → 3단계(커리어 정보)
 - **온보딩 페이지** — 회원가입 후 커리어 정보(이름/희망직무/경력/학력/전공) + 약관 동의 입력
 - **마이페이지** — 사용량 지표, 프로필 수정 (이름/희망직무/자기소개), 아바타 사진 업로드, 통합 활동 피드, 쿠폰 등록 모달, 회원 탈퇴
 - **요금제 페이지** — 플랜 비교 및 선택 UI; 관리자가 비활성화한 플랜은 버튼 자동 차단
@@ -31,16 +32,17 @@
 
 ## 기술 스택
 
-| 구분       | 기술                                               |
-| ---------- | -------------------------------------------------- |
-| 백엔드     | Python 3.11, FastAPI, OpenAI API (GPT-4o)          |
-| 프론트엔드 | Next.js 16, shadcn/ui, Tailwind CSS, Framer Motion |
-| DB         | Supabase (pgvector, Auth, RLS)                     |
-| 임베딩     | OpenAI text-embedding-3-small                      |
-| PDF 파싱   | PyMuPDF                                            |
-| 회사 조사  | OpenAI web search + Tavily API + DART 공시 API     |
-| 결제       | Toss Payments (빌링키 정기 구독)                   |
-| 인증       | Supabase Auth (이메일 + Google OAuth)              |
+| 구분        | 기술                                               |
+| ----------- | -------------------------------------------------- |
+| 백엔드      | Python 3.11, FastAPI, OpenAI API (GPT-4o)          |
+| 프론트엔드  | Next.js 16, shadcn/ui, Tailwind CSS, Framer Motion |
+| DB          | Supabase (pgvector, Auth, RLS)                     |
+| 임베딩      | OpenAI text-embedding-3-small                      |
+| 이미지 파싱 | Anthropic Claude Haiku 4.5 Vision                  |
+| PDF 파싱    | PyMuPDF                                            |
+| 회사 조사   | OpenAI web search + Tavily API + DART 공시 API     |
+| 결제        | Toss Payments (빌링키 정기 구독)                   |
+| 인증        | Supabase Auth (이메일 + Google OAuth)              |
 
 ## 아키텍처
 
@@ -74,7 +76,7 @@
 
 - Python 3.11+, conda, Node.js 18+
 - Supabase 프로젝트 (pgvector 확장)
-- OpenAI API Key, Tavily API Key, DART API Key, Toss Payments Secret Key
+- OpenAI API Key, Anthropic API Key, Tavily API Key, DART API Key, Toss Payments Client/Secret Key
 
 ### 백엔드
 
@@ -88,7 +90,7 @@ uv pip install openai "supabase>=2.0" typer rich python-dotenv pymupdf "fastapi[
 
 # .env 설정
 cp .env.example .env
-# SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, TAVILY_API_KEY, DART_API_KEY, TOSS_SECRET_KEY 입력
+# SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, TAVILY_API_KEY, DART_API_KEY, TOSS_CLIENT_KEY, TOSS_SECRET_KEY, CRON_SECRET 입력
 
 # 합격 자소서 임베딩 (최초 1회)
 python -m src.embedder
@@ -106,7 +108,7 @@ cd frontend
 npm install
 
 # .env.local 설정
-# NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY 입력
+# NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_API_URL 입력
 
 # 개발 서버 실행
 npm run dev
@@ -165,11 +167,13 @@ cover-letter/
 │   ├── 003_match_companies_function.sql
 │   ├── 004_add_plan_usage_tracking.sql
 │   ├── 005_avatars_storage.sql         # 프로필 아바타 스토리지 + RLS 정책
+│   ├── 006_fix_rls_policies.sql       # RLS 정책 보완 (resumes DELETE + profiles with_check)
 │   ├── 007_admin.sql                   # profiles.role, extra_regenerations, app_settings 테이블
 │   ├── 008_subscriptions.sql           # subscriptions 테이블 (Toss Payments 구독 결제)
 │   ├── 009_coupons.sql                 # coupons 테이블 + profiles.extra_generations
 │   ├── 010_soft_delete_projects.sql    # generations.deleted_at (소프트 삭제)
-│   └── 011_company_search_credits.sql  # profiles.extra_company_searches + coupons.bonus_company_searches
+│   ├── 011_company_search_credits.sql  # profiles.extra_company_searches + coupons.bonus_company_searches
+│   └── 012_birth_date.sql              # profiles.birth_date 컬럼 추가
 ├── email-templates/          # Supabase Auth 이메일 템플릿
 ├── data/data.txt             # 합격 자소서 원본 (39건)
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
