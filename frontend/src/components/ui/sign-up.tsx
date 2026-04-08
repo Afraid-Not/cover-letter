@@ -95,7 +95,7 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await fetch(
-          `http://localhost:8000/api/check-email?email=${encodeURIComponent(email)}`,
+          `${process.env.NEXT_PUBLIC_API_URL}/api/check-email?email=${encodeURIComponent(email)}`,
         );
         const data = await res.json();
         setEmailStatus(data.available ? "available" : "taken");
