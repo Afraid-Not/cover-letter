@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, Zap, Star, Building2, LoaderCircle } from "lucide-react";
 import { motion, type Variants } from "framer-motion";
@@ -116,7 +116,7 @@ const PLANS: {
   },
 ];
 
-export default function PricingPage() {
+function PricingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isOnboarding = searchParams.get("onboarding") === "1";
@@ -291,5 +291,13 @@ export default function PricingPage() {
         </motion.button>
       </motion.div>
     </div>
+  );
+}
+
+export default function PricingPage() {
+  return (
+    <Suspense>
+      <PricingContent />
+    </Suspense>
   );
 }
