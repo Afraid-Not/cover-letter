@@ -76,6 +76,18 @@ export const api = {
     }).then((r) => r.json());
   },
 
+  updateResume: async (
+    id: number,
+    fields: { name?: string; structured_data?: Record<string, unknown> },
+  ) => {
+    const headers = await getAuthHeaders();
+    return fetch(`${API_BASE}/api/resumes/${id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(fields),
+    }).then((r) => r.json());
+  },
+
   deleteResume: async (id: number) => {
     const headers = await getAuthHeaders();
     return fetch(`${API_BASE}/api/resumes/${id}`, {
@@ -246,6 +258,8 @@ export const api = {
     education_level?: string;
     education_major?: string;
     agreed_to_terms: boolean;
+    avatar_url?: string;
+    bio?: string;
   }) => {
     const headers = await getAuthHeaders();
     return fetch(`${API_BASE}/api/profiles`, {

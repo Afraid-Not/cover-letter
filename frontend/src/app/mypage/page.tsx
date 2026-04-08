@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api, type UsageSummary } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { supabase } from "@/lib/supabase";
 import {
   FileText,
   Repeat2,
@@ -26,6 +27,7 @@ import {
   ArrowRight,
   Activity,
   TrendingUp,
+  Camera,
 } from "lucide-react";
 
 // ── Variants ──────────────────────────────────────────────────────────────────
@@ -185,6 +187,8 @@ const MyPage = () => {
   const [profile, setProfile] = useState<{
     name?: string;
     job_title?: string;
+    avatar_url?: string;
+    bio?: string;
   } | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [resumeCount, setResumeCount] = useState<number | null>(null);
@@ -200,6 +204,9 @@ const MyPage = () => {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editJobTitle, setEditJobTitle] = useState("");
+  const [editAvatarUrl, setEditAvatarUrl] = useState<string | undefined>();
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [editBio, setEditBio] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -240,7 +247,32 @@ const MyPage = () => {
   const startEdit = () => {
     setEditName(profile?.name ?? "");
     setEditJobTitle(profile?.job_title ?? "");
+    setEditAvatarUrl(profile?.avatar_url);
+    setEditBio(profile?.bio ?? "");
     setEditing(true);
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    setAvatarUploading(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `${userId}/avatar.${ext}`;
+      const { error } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, { upsert: true });
+      if (error) throw error;
+
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      // cache buster로 브라우저 캐시 무력화
+      setEditAvatarUrl(`${data.publicUrl}?t=${Date.now()}`);
+    } finally {
+      setAvatarUploading(false);
+    }
   };
 
   const saveProfile = async () => {
@@ -249,6 +281,8 @@ const MyPage = () => {
       const updated = await api.saveProfile({
         name: editName,
         job_title: editJobTitle || undefined,
+        avatar_url: editAvatarUrl,
+        bio: editBio || undefined,
         agreed_to_terms: true,
       });
       setProfile(updated);
@@ -274,8 +308,8 @@ const MyPage = () => {
         >
           {/* ── Header ── */}
           <motion.div variants={item}>
-            <h1 className="font-heading text-2xl text-foreground">
-              My Dashboard
+            <h1 className="font-heading text-2xl font-bold text-foreground">
+              Dashboard
             </h1>
           </motion.div>
 
@@ -318,7 +352,7 @@ const MyPage = () => {
                       ? `/ ${usage.limits.regenerations}`
                       : "회"
                   }
-                  description="피드백 재작성 횟수"
+                  description="피드백 반영 재작성 횟수"
                   icon={Repeat2}
                   accent="text-emerald-600"
                 />
@@ -348,7 +382,7 @@ const MyPage = () => {
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      활성 구독 중
+                      구독중인 플랜
                     </p>
                   </CardContent>
                 </Card>
@@ -371,9 +405,6 @@ const MyPage = () => {
                     <CardTitle className="text-base font-semibold text-gray-700">
                       프로필
                     </CardTitle>
-                    <CardDescription className="text-xs mt-0.5">
-                      계정 정보 편집
-                    </CardDescription>
                   </div>
                   {!editing && (
                     <Button
@@ -389,26 +420,65 @@ const MyPage = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-xl shrink-0 select-none">
-                      {avatarLetter}
+                    <div className="relative shrink-0 group">
+                      {(editing ? editAvatarUrl : profile?.avatar_url) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={editing ? editAvatarUrl : profile?.avatar_url}
+                          alt="프로필 사진"
+                          className="w-14 h-14 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-xl select-none">
+                          {avatarLetter}
+                        </div>
+                      )}
+                      {editing && (
+                        <label className="absolute inset-0 rounded-full flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                          {avatarUploading ? (
+                            <span className="text-white text-[10px]">
+                              업로드 중
+                            </span>
+                          ) : (
+                            <Camera className="h-4 w-4 text-white" />
+                          )}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleAvatarChange}
+                            disabled={avatarUploading}
+                          />
+                        </label>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       {editing ? (
                         <div className="space-y-2">
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            placeholder="이름"
-                            className="w-full h-8 rounded-md border border-gray-200 bg-gray-50 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/40"
-                          />
-                          <input
-                            type="text"
-                            value={editJobTitle}
-                            onChange={(e) => setEditJobTitle(e.target.value)}
-                            placeholder="직무 / 직책 (선택)"
-                            className="w-full h-8 rounded-md border border-gray-200 bg-gray-50 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/40"
-                          />
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400 w-14 shrink-0">
+                              이름
+                            </span>
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              placeholder="홍길동"
+                              className="flex-1 h-8 rounded-md border border-gray-200 bg-gray-50 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/40"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400 w-14 shrink-0">
+                              희망 직무
+                            </span>
+                            <input
+                              type="text"
+                              value={editJobTitle}
+                              onChange={(e) => setEditJobTitle(e.target.value)}
+                              placeholder="백엔드 개발자"
+                              className="flex-1 h-8 rounded-md border border-gray-200 bg-gray-50 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/40"
+                            />
+                          </div>
                           <div className="flex gap-2 pt-1">
                             <Button
                               size="sm"
@@ -430,29 +500,70 @@ const MyPage = () => {
                           </div>
                         </div>
                       ) : (
-                        <>
-                          <p className="font-semibold text-gray-900 text-lg leading-tight truncate">
-                            {displayName}
-                          </p>
-                          {profile?.job_title && (
-                            <p className="text-sm text-gray-500 mt-0.5 truncate">
-                              {profile.job_title}
-                            </p>
-                          )}
-                          <p className="text-xs text-gray-400 mt-1 truncate">
-                            {email}
-                          </p>
-                        </>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-gray-400 w-16 shrink-0">
+                              이름
+                            </span>
+                            <span className="text-gray-200 select-none">|</span>
+                            <span className="font-semibold text-gray-900 truncate">
+                              {displayName}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-gray-400 w-16 shrink-0">
+                              희망 직무
+                            </span>
+                            <span className="text-gray-200 select-none">|</span>
+                            <span className="text-gray-600 truncate">
+                              {profile?.job_title || (
+                                <span className="text-gray-300 italic">
+                                  미입력
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-gray-400 w-16 shrink-0">
+                              메일
+                            </span>
+                            <span className="text-gray-200 select-none">|</span>
+                            <span className="text-gray-500 truncate">
+                              {email}
+                            </span>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
                 </CardContent>
-                <CardFooter className="pt-0 pb-4 px-6">
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${PLAN_COLORS[plan] ?? PLAN_COLORS.free}`}
-                  >
-                    {PLAN_LABELS[plan] ?? plan} 플랜
+                <CardFooter className="pt-0 pb-4 px-6 flex flex-col items-start gap-1.5 bg-transparent border-t-0">
+                  <span className="text-xs font-semibold text-gray-500">
+                    자기소개
                   </span>
+                  {editing ? (
+                    <div className="w-full flex flex-col gap-1">
+                      <textarea
+                        value={editBio}
+                        onChange={(e) =>
+                          setEditBio(e.target.value.slice(0, 200))
+                        }
+                        placeholder="간단한 자기소개를 입력하세요"
+                        rows={3}
+                        maxLength={200}
+                        className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-violet-400/40"
+                      />
+                      <p className="text-xs text-gray-400 self-end">
+                        {editBio.length} / 200
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
+                      {profile?.bio || (
+                        <span className="text-gray-300 italic">미입력</span>
+                      )}
+                    </p>
+                  )}
                 </CardFooter>
               </Card>
             )}
@@ -461,18 +572,18 @@ const MyPage = () => {
             {loading ? (
               <SkeletonCard rows={5} />
             ) : (
-              <Card className="bg-white border border-gray-200 shadow-sm">
-                <div className="px-4 pt-4 pb-3 flex items-center justify-between">
-                  <div className="text-base font-semibold text-gray-700 flex items-center gap-1.5">
+              <Card className="bg-white border border-gray-200 shadow-sm flex flex-col">
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <CardTitle className="text-base font-semibold text-gray-700 flex items-center gap-1.5">
                     <TrendingUp className="h-4 w-4 text-violet-500" />
                     이번달 사용량
-                  </div>
+                  </CardTitle>
                   <span
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${PLAN_COLORS[plan] ?? PLAN_COLORS.free}`}
                   >
-                    사용중인 플랜: {PLAN_LABELS[plan] ?? plan} Plan
+                    {PLAN_LABELS[plan] ?? plan} Plan
                   </span>
-                </div>
+                </CardHeader>
                 <CardContent className="space-y-5">
                   {usage ? (
                     <>
@@ -498,7 +609,7 @@ const MyPage = () => {
                     </p>
                   )}
                 </CardContent>
-                <CardFooter className="pt-2 pb-4 px-6 border-t border-gray-100">
+                <CardFooter className="mt-auto pt-2 pb-4 px-6 border-t border-gray-100 bg-transparent">
                   <button
                     onClick={() => router.push("/pricing")}
                     className="text-xs text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1 transition-colors"
@@ -568,7 +679,7 @@ const MyPage = () => {
                     </div>
                   </ScrollArea>
                 </CardContent>
-                <CardFooter className="pt-4 border-t border-gray-100">
+                <CardFooter className="pt-4 border-t border-gray-100 bg-transparent">
                   <button
                     onClick={() => router.push("/")}
                     className="text-xs text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1 transition-colors"

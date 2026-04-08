@@ -360,27 +360,30 @@ export default function ProjectPage({
       setAnswer(result.answer);
       setCharCount(result.char_count);
 
-      setGenStep("evaluating");
-      setEvalEvents([]);
+      let evalRes = null;
+      if (usage?.plan !== "free") {
+        setGenStep("evaluating");
+        setEvalEvents([]);
 
-      const evalRes = await api.evaluateStream(
-        {
-          question: effectiveQuestion,
-          answer: result.answer,
-          job_analysis: result.job_analysis,
-          resume_structured: resumeStructured,
-          company_size: project.companies?.company_size ?? null,
-        },
-        (ev) => setEvalEvents((prev) => [...prev, ev]),
-      );
+        evalRes = await api.evaluateStream(
+          {
+            question: effectiveQuestion,
+            answer: result.answer,
+            job_analysis: result.job_analysis,
+            resume_structured: resumeStructured,
+            company_size: project.companies?.company_size ?? null,
+          },
+          (ev) => setEvalEvents((prev) => [...prev, ev]),
+        );
 
-      setEvalResult(evalRes);
+        setEvalResult(evalRes);
+      }
       setGenStep("done");
 
       // 새 버전으로 저장 (덮어쓰지 않고 이력 보존)
       const version = await api.createVersion(project.id, {
         answer: result.answer,
-        evaluation: evalRes,
+        evaluation: evalRes ?? undefined,
         question: effectiveQuestion,
         mode,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -415,8 +418,9 @@ export default function ProjectPage({
   const MAX_REGENERATIONS = 5;
   const regenLimitReached =
     usage !== null &&
-    usage.limits.regenerations > 0 &&
-    usage.usage.regenerations >= usage.limits.regenerations;
+    (usage.limits.regenerations === 0 ||
+      (usage.limits.regenerations > 0 &&
+        usage.usage.regenerations >= usage.limits.regenerations));
 
   const handleRegenerate = async () => {
     if (!project || !evalResult) return;
@@ -453,27 +457,30 @@ export default function ProjectPage({
       setAnswer(result.answer);
       setCharCount(result.char_count);
 
-      setGenStep("evaluating");
-      setEvalEvents([]);
+      let evalRes = null;
+      if (usage?.plan !== "free") {
+        setGenStep("evaluating");
+        setEvalEvents([]);
 
-      const evalRes = await api.evaluateStream(
-        {
-          question: effectiveQuestion,
-          answer: result.answer,
-          job_analysis: project.job_analysis,
-          resume_structured: resumeStructured,
-          company_size: project.companies?.company_size ?? null,
-        },
-        (ev) => setEvalEvents((prev) => [...prev, ev]),
-      );
+        evalRes = await api.evaluateStream(
+          {
+            question: effectiveQuestion,
+            answer: result.answer,
+            job_analysis: project.job_analysis,
+            resume_structured: resumeStructured,
+            company_size: project.companies?.company_size ?? null,
+          },
+          (ev) => setEvalEvents((prev) => [...prev, ev]),
+        );
 
-      setEvalResult(evalRes);
+        setEvalResult(evalRes);
+      }
       setGenStep("done");
 
       // 새 버전으로 저장 (덮어쓰지 않고 이력 보존)
       const version = await api.createVersion(project.id, {
         answer: result.answer,
-        evaluation: evalRes,
+        evaluation: evalRes ?? undefined,
         question: effectiveQuestion,
         mode,
         char_limit: charLimit ? parseInt(charLimit) : undefined,
@@ -1584,9 +1591,11 @@ export default function ProjectPage({
                                   onClick={handleRegenerate}
                                   disabled={regenLimitReached || isLoading}
                                   title={
-                                    regenLimitReached
-                                      ? "이번 달 재생성 횟수를 모두 사용했습니다"
-                                      : undefined
+                                    usage?.limits.regenerations === 0
+                                      ? "Free 플랜에서는 재생성이 불가합니다. 업그레이드하세요."
+                                      : regenLimitReached
+                                        ? "이번 달 재생성 횟수를 모두 사용했습니다"
+                                        : undefined
                                   }
                                   className="flex flex-col items-end leading-tight h-auto py-2"
                                 >
@@ -1616,6 +1625,47 @@ export default function ProjectPage({
                           <EvaluationStream events={evalEvents} />
                         )}
                         {evalResult && <EvaluationCard result={evalResult} />}
+                        {genStep === "done" &&
+                          !evalResult &&
+                          usage?.plan === "free" &&
+                          answer && (
+                            <Card className="border-primary/30 bg-primary/5">
+                              <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                                  <svg
+                                    className="h-6 w-6 text-primary"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+                                    />
+                                  </svg>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <p className="font-semibold text-foreground">
+                                    9인 AI 평가는 Pro 플랜 이상에서 사용할 수
+                                    있습니다
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    HR 담당자, 현업 팀장, 채용 리더 9명의 평가와
+                                    <br />
+                                    서류 통과 확률을 확인해보세요.
+                                  </p>
+                                </div>
+                                <Button
+                                  onClick={() => router.push("/pricing")}
+                                  className="mt-1"
+                                >
+                                  플랜 업그레이드
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          )}
                       </motion.div>
                     </motion.div>
                   )}

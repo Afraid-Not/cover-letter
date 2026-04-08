@@ -108,6 +108,8 @@ class ProfileRequest(BaseModel):
     education_level: str | None = None
     education_major: str | None = None
     agreed_to_terms: bool = False
+    avatar_url: str | None = None
+    bio: str | None = None
 
 
 # ── Supabase 헬퍼 ──
@@ -143,7 +145,7 @@ def _get_user_id(token: str) -> str | None:
 # ── 플랜 제한 ──
 
 PLAN_LIMITS = {
-    "free":       {"resumes": 1,  "generations": 3,  "regenerations": 0},
+    "free":       {"resumes": 1,  "generations": 5,  "regenerations": 0},
     "pro":        {"resumes": 10, "generations": -1, "regenerations": 5},   # -1 = unlimited
     "enterprise": {"resumes": -1, "generations": -1, "regenerations": -1},
 }
@@ -303,9 +305,17 @@ async def generate(req: GenerateRequest, request: Request):
 
 
 @app.post("/api/evaluate")
-async def evaluate(req: EvaluateRequest):
+async def evaluate(req: EvaluateRequest, request: Request):
     from src.evaluator import evaluate_all, aggregate_feedback
     from src.scoring_tables import compute_score_adjustment
+
+    token = _extract_token(request)
+    if token:
+        user_id = _get_user_id(token)
+        if user_id:
+            plan = _get_user_plan(_get_sb(token), user_id)
+            if plan == "free":
+                raise HTTPException(status_code=403, detail="PLAN_LIMIT|평가 기능은 Pro 플랜 이상에서 사용할 수 있습니다.")
 
     result = await evaluate_all(req.question, req.answer, req.job_analysis)
     feedback = aggregate_feedback(result)
@@ -324,12 +334,20 @@ async def evaluate(req: EvaluateRequest):
 
 
 @app.post("/api/evaluate/stream")
-async def evaluate_stream_endpoint(req: EvaluateRequest):
+async def evaluate_stream_endpoint(req: EvaluateRequest, request: Request):
     """9명 평가관 결과를 SSE로 실시간 스트리밍한다."""
     import json as json_lib
 
     from starlette.responses import StreamingResponse
     from src.evaluator import evaluate_stream as _eval_stream, aggregate_feedback, _summarize_results
+
+    token = _extract_token(request)
+    if token:
+        user_id = _get_user_id(token)
+        if user_id:
+            plan = _get_user_plan(_get_sb(token), user_id)
+            if plan == "free":
+                raise HTTPException(status_code=403, detail="PLAN_LIMIT|평가 기능은 Pro 플랜 이상에서 사용할 수 있습니다.")
 
     async def event_generator():
         from src.scoring_tables import compute_score_adjustment
@@ -451,6 +469,26 @@ async def get_resume(resume_id: int):
         return get_resume(resume_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"이력서 조회 실패: {e}")
+
+
+@app.patch("/api/resumes/{resume_id}")
+async def update_resume(resume_id: int, body: dict, request: Request):
+    """이력서 구조체 및 이름 수정"""
+    token = _extract_token(request)
+    sb = _get_sb(token)
+    update_fields: dict = {}
+    if "name" in body:
+        update_fields["name"] = body["name"]
+    if "structured_data" in body:
+        update_fields["structured_data"] = body["structured_data"]
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="수정할 필드가 없습니다.")
+    update_fields["updated_at"] = "now()"
+    try:
+        result = sb.table("resumes").update(update_fields).eq("id", resume_id).execute()
+        return result.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"이력서 수정 실패: {e}")
 
 
 @app.delete("/api/resumes/{resume_id}")
@@ -795,6 +833,8 @@ async def upsert_profile(req: ProfileRequest, request: Request):
         "education_level": req.education_level,
         "education_major": req.education_major,
         "agreed_to_terms": req.agreed_to_terms,
+        "avatar_url": req.avatar_url,
+        "bio": req.bio,
     }
 
     if req.job_title:

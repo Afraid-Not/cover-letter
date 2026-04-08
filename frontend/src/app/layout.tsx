@@ -27,7 +27,7 @@ const nanumMyeongjo = Nanum_Myeongjo({
 });
 
 export const metadata: Metadata = {
-  title: "AURA",
+  title: "AURA | AI로 작성하는 나만의 이야기",
   description: "합격 자소서 기반 RAG 자소서 생성 + LLM-as-a-Judge 평가",
 };
 

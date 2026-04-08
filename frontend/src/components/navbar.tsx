@@ -9,8 +9,8 @@ import { api } from "@/lib/api";
 import type { UsageSummary } from "@/lib/api";
 
 const NAV_ITEMS = [
-  { href: "/", label: "자소서 작성" },
-  { href: "/resumes", label: "이력서 등록" },
+  { href: "/", label: "자소서 관리" },
+  { href: "/resumes", label: "이력서 관리" },
 ];
 
 export const Navbar = () => {
@@ -67,9 +67,9 @@ export const Navbar = () => {
                   key={item.href}
                   ref={isResumes ? resumeLinkRef : undefined}
                   href={item.href}
-                  className={`text-sm transition-colors duration-200 ${
+                  className={`text-base font-bold transition-colors duration-200 ${
                     isActive
-                      ? "text-foreground font-medium"
+                      ? "text-foreground"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >

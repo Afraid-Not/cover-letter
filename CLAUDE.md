@@ -31,7 +31,7 @@ npm run dev
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI — REST + SSE 스트리밍 + 프로젝트 CRUD + 프로필 API
+├── api/main.py              # FastAPI — REST + SSE 스트리밍 + 프로젝트 CRUD + 프로필 + 플랜 API
 ├── src/
 │   ├── embedder.py           # data.txt → Parent-Child 청킹 → 임베딩 → Supabase
 │   ├── parser.py             # 이력서 파싱 (텍스트/PDF) → 구조화 → Supabase 저장
@@ -44,11 +44,16 @@ cover-letter/
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /history, /projects/[id], /resumes
-│       ├── components/       # app-shell, sidebar, navbar, auth-guard/provider, evaluation-card/stream
-│       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, card…
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy
+│       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
+│       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, card, dialog…
 │       ├── hooks/            # use-navigation-guard (작업 중 브라우저 이탈 차단)
 │       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD), supabase.ts
+├── migration/                # Supabase DB 마이그레이션 SQL
+│   ├── 002_companies_table.sql        # companies 테이블 (회사 조사 캐시)
+│   ├── 003_match_companies_function.sql
+│   ├── 004_add_plan_usage_tracking.sql  # profiles 플랜 컬럼 + is_regeneration 플래그
+│   └── 005_avatars_storage.sql        # profiles avatar_url/bio 컬럼 + avatars 스토리지 버킷 + RLS
 ├── email-templates/          # Supabase Auth 이메일 템플릿 (가입 인증)
 ├── data/data.txt             # 합격 자소서 39건 원본
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
@@ -62,9 +67,17 @@ cover-letter/
 - `documents` — 합격 자소서 청크 (Parent-Child, parent_id로 연결)
 - `resumes` — 사용자 이력서 (user_id + RLS)
 - `generations` — 생성 이력 (자소서 + 평가 결과, user_id + RLS)
-  - `company_research jsonb` — 회사 조사 결과 (미션/비전/제품·서비스), 신규 컬럼
-  - 마이그레이션: `ALTER TABLE generations ADD COLUMN IF NOT EXISTS company_research jsonb;`
+  - `company_research jsonb` — 회사 조사 결과 (미션/비전/제품·서비스)
+  - `is_regeneration boolean` — 피드백 기반 재생성 여부 (월별 쿼터 구분용)
+- `companies` — 회사 조사 캐시 (embedding 포함, 중복 검색 방지)
 - `profiles` — 사용자 프로필 (user_id + RLS), `/api/profiles` CRUD
+  - `plan` — free / pro / enterprise (기본값 free)
+  - `job_seeker_status` — 신입 / 경력
+  - `years_of_experience`, `education_level`, `education_major`
+  - `job_embedding` — 직무명 벡터 (유사도 검색용)
+  - `avatar_url` — 프로필 사진 URL (Supabase Storage avatars 버킷)
+  - `bio` — 자기소개 (최대 200자)
+- `avatars` (Storage Bucket) — 프로필 사진 저장 (public read, 소유자만 write); 폴더 구조: `{user_id}/{filename}`
 
 ## 주요 설계 결정
 
@@ -116,8 +129,10 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 
 - **테마**: Soft/Pastel 다크 — 라벤더/바이올렛 톤 (primary hue 290)
 - **다크모드 색상**: background `oklch(0.135)`, card `oklch(0.26)`, border `oklch(0.32)` — 충분한 명도 차이 확보
-- **네비게이션**: 상단 고정 Navbar (로고 + 메뉴 + 로그아웃), 사이드바는 프로젝트 상세 페이지에서만 사용
+- **네비게이션**: 상단 고정 Navbar (로고 + 메뉴 + 현재 플랜 배지 + 마이페이지 링크 + 플랜 업그레이드 버튼 + 로그아웃), 사이드바는 프로젝트 상세 페이지에서만 사용; 이력서 미등록 시 등록 유도 툴팁 표시
 - **웰컴 페이지** (`/welcome`): Framer Motion stagger 카드 애니메이션으로 핵심 기능 소개
+- **마이페이지** (`/mypage`): MetricCard + UsageBar 컴포넌트, 프로필 인라인 편집 (이름/희망직무/자기소개), 아바타 업로드 (카메라 아이콘 오버레이, Supabase Storage), Framer Motion stagger
+- **요금제 페이지** (`/pricing`): Free/Pro/Enterprise 3-tier 비교 카드, 플랜 선택 + toast 알림
 - **AI 로더** (`AiLoader`): Portal 기반 전체화면 오버레이, pointer-events 차단으로 중복 요청 방지
 - **프로젝트 카드**: 고정 높이, 좌측 상태 액센트 바, 부드러운 그림자
 - **결과 레이아웃**: 2-Column (자소서+피드백 좌 / 통과확률+평가카드 우)
@@ -125,6 +140,15 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - **콘텐츠 영역**: max-w-7xl, 넓은 레이아웃
 - **상태 컬러**: draft(gray), ready(sky), generated(amber), evaluated(emerald)
 - **서비스명**: AURA
+
+## 플랜 시스템 (api/main.py)
+
+- `PLAN_LIMITS` dict: free (이력서 1개, 생성 5회/월, 재생성 0회) | pro (이력서 10개, 생성 무제한, 재생성 5회/월) | enterprise (모두 무제한)
+- 월별 사용량 추적: `_count_monthly_usage()` — `is_regeneration` 플래그로 생성/재생성 구분
+- `/api/generate`, `/api/resumes` 엔드포인트에서 쿼터 초과 시 HTTP 403 `PLAN_LIMIT` 반환
+- `/api/usage` — 현재 플랜 + 월별 사용량 조회
+- `/api/profiles/plan` PATCH — 플랜 변경
+- 회원가입 플로우: 회원가입 → `/pricing?onboarding=1` → 플랜 선택 → `/welcome`
 
 ## 프로젝트 플로우
 
@@ -137,6 +161,8 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - 회사명/직무 미입력 시 다음 단계 진행 불가
 - 프로젝트 데이터는 `generations` 테이블 재사용 (별도 테이블 없음)
 - `use-navigation-guard` 훅으로 생성/평가 중 브라우저 이탈(새로고침·뒤로가기) 차단
+- 마이페이지(`/mypage`) → 사용량 지표(이력서/생성/재생성/플랜) + 프로필 수정 + 최근 프로젝트
+- 요금제 페이지(`/pricing`) → Free/Pro/Enterprise 비교 + 플랜 변경
 
 ## 코드 컨벤션
 

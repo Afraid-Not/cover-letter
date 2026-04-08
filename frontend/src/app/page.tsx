@@ -34,15 +34,15 @@ const STATUS_CONFIG: Record<
     iconGlow: "bg-zinc-400/20",
   },
   ready: {
-    label: "이력서 설정 완료",
-    color: "bg-sky-100 text-sky-600",
-    accent: "bg-sky-400",
-    statusColor: "bg-sky-100 text-sky-700 group-hover:bg-sky-200",
-    accentGradient: "from-sky-400/20 via-sky-400/5 to-transparent",
-    iconGlow: "bg-sky-400/15",
+    label: "작성 중",
+    color: "bg-muted text-muted-foreground",
+    accent: "bg-muted-foreground/30",
+    statusColor: "bg-muted text-muted-foreground group-hover:bg-accent",
+    accentGradient: "from-zinc-500/15 via-zinc-500/5 to-transparent",
+    iconGlow: "bg-zinc-400/20",
   },
   generated: {
-    label: "자소서 생성 완료",
+    label: "생성 완료",
     color: "bg-amber-100 text-amber-700",
     accent: "bg-amber-400",
     statusColor: "bg-amber-100 text-amber-700 group-hover:bg-amber-200",
@@ -351,7 +351,14 @@ const AnalysisConfirmModal = ({
     a?.culture_keywords || [],
   );
 
+  const [showCompanyCheck, setShowCompanyCheck] = useState(false);
+
+  const handleConfirmClick = () => {
+    setShowCompanyCheck(true);
+  };
+
   const handleConfirm = async () => {
+    setShowCompanyCheck(false);
     setSaving(true);
     await onConfirm({
       company,
@@ -477,7 +484,7 @@ const AnalysisConfirmModal = ({
           <Button
             size="sm"
             className="gap-1.5"
-            onClick={handleConfirm}
+            onClick={handleConfirmClick}
             disabled={saving}
           >
             {saving ? (
@@ -490,6 +497,47 @@ const AnalysisConfirmModal = ({
           </Button>
         </div>
       </div>
+
+      {/* 회사명 재확인 팝업 */}
+      {showCompanyCheck && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => setShowCompanyCheck(false)}
+          />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4 animate-fade-in">
+            <h3 className="text-base font-semibold">회사명을 확인해주세요</h3>
+            <div className="rounded-lg bg-accent/20 border border-border px-4 py-3 text-center">
+              <p className="text-lg font-bold text-foreground">
+                {company || (
+                  <span className="text-muted-foreground">미입력</span>
+                )}
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              회사명이 정확하지 않으면 회사 정보 자동 조사가 제대로 이루어지지
+              않을 수 있습니다. 다시 한번 확인해주세요.
+            </p>
+            <div className="flex gap-2 justify-end pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCompanyCheck(false)}
+              >
+                수정하기
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={handleConfirm}
+                disabled={saving}
+              >
+                <CheckIcon /> 맞습니다
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -653,17 +701,7 @@ export default function DashboardPage() {
           transition={{ duration: 0.18 }}
         >
           {/* Backdrop */}
-          <motion.div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => {
-              if (!creating) {
-                setShowCreate(false);
-                setJobPosting("");
-                setJobFile(null);
-                setPastedImageName(null);
-              }
-            }}
-          />
+          <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
           {/* Modal */}
           <motion.div
@@ -862,7 +900,29 @@ export default function DashboardPage() {
                 Plan
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-3 gap-6">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>생성한 자소서</span>
+                  <span className="font-medium text-foreground">
+                    {usage.usage.generations}&nbsp;/&nbsp;
+                    {usage.limits.generations === -1
+                      ? "∞"
+                      : usage.limits.generations}
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-sky-500 transition-all"
+                    style={{
+                      width:
+                        usage.limits.generations === -1
+                          ? "0%"
+                          : `${Math.min((usage.usage.generations / usage.limits.generations) * 100, 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>등록된 이력서</span>
@@ -960,10 +1020,21 @@ export default function DashboardPage() {
                 const position =
                   project.job_analysis?.position || "직무 미확인";
                 const passProb = project.evaluation?.overall_pass_probability;
-                const date = new Date(project.created_at).toLocaleDateString(
-                  "ko-KR",
-                  { month: "short", day: "numeric" },
-                );
+                const d = new Date(project.created_at);
+                const date =
+                  "작성 시간 | " +
+                  d.toLocaleDateString("ko-KR", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  }) +
+                  " " +
+                  d.toLocaleTimeString("ko-KR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: false,
+                  });
 
                 return {
                   title: company,

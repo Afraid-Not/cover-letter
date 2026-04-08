@@ -17,6 +17,10 @@
 - **일반 자소서 / 질문 답변** 모드 지원
 - **피드백 반영 재생성** — 평가 결과 기반 자동 개선
 - **작업 중 이탈 차단** — 생성/평가 중 브라우저 새로고침·뒤로가기 차단
+- **플랜 시스템** — Free / Pro / Enterprise 3단계 요금제, 월별 생성/재생성 쿼터 관리
+- **마이페이지** — 사용량 지표, 프로필 수정 (이름/희망직무/자기소개), 아바타 사진 업로드, 최근 프로젝트 목록
+- **요금제 페이지** — 플랜 비교 및 선택 UI
+- **약관/개인정보처리방침** — `/terms`, `/privacy` 정적 페이지
 
 ## 기술 스택
 
@@ -126,7 +130,7 @@ python -m src.cli embed
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI 백엔드 (REST + SSE + 프로젝트 CRUD + 프로필 API)
+├── api/main.py              # FastAPI 백엔드 (REST + SSE + 프로젝트 CRUD + 프로필 + 플랜 API)
 ├── src/
 │   ├── embedder.py           # 합격 자소서 → Parent-Child 청킹 → 임베딩
 │   ├── parser.py             # 이력서 파싱 + Supabase 저장/조회
@@ -139,11 +143,16 @@ cover-letter/
 │   └── cli.py                # Typer CLI
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /history, /projects/[id], /resumes
-│       ├── components/       # app-shell, sidebar, navbar, auth-guard/provider, evaluation-card
-│       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button…
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy
+│       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
+│       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, dialog…
 │       ├── hooks/            # use-navigation-guard
 │       └── lib/              # api.ts, supabase.ts
+├── migration/                # Supabase DB 마이그레이션 SQL
+│   ├── 002_companies_table.sql
+│   ├── 003_match_companies_function.sql
+│   ├── 004_add_plan_usage_tracking.sql
+│   └── 005_avatars_storage.sql         # 프로필 아바타 스토리지 + RLS 정책
 ├── email-templates/          # Supabase Auth 이메일 템플릿
 ├── data/data.txt             # 합격 자소서 원본 (39건)
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
