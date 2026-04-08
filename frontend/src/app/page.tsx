@@ -900,7 +900,7 @@ export default function DashboardPage() {
                 Plan
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-4 gap-6">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>생성한 자소서</span>
@@ -919,6 +919,28 @@ export default function DashboardPage() {
                         usage.limits.generations === -1
                           ? "0%"
                           : `${Math.min((usage.usage.generations / usage.limits.generations) * 100, 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>피드백 재생성</span>
+                  <span className="font-medium text-foreground">
+                    {usage.usage.regenerations}&nbsp;/&nbsp;
+                    {usage.limits.regenerations === -1
+                      ? "∞"
+                      : usage.limits.regenerations}
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-violet-500 transition-all"
+                    style={{
+                      width:
+                        usage.limits.regenerations === -1
+                          ? "0%"
+                          : `${Math.min((usage.usage.regenerations / usage.limits.regenerations) * 100, 100)}%`,
                     }}
                   />
                 </div>
@@ -945,22 +967,23 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>피드백 재생성</span>
+                  <span>회사 검색</span>
                   <span className="font-medium text-foreground">
-                    {usage.usage.regenerations}&nbsp;/&nbsp;
-                    {usage.limits.regenerations === -1
+                    {usage.limits.company_searches === -1
                       ? "∞"
-                      : usage.limits.regenerations}
+                      : `${usage.extra_company_searches}회 남음`}
                   </span>
                 </div>
                 <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-violet-500 transition-all"
+                    className="h-full rounded-full bg-amber-500 transition-all"
                     style={{
                       width:
-                        usage.limits.regenerations === -1
+                        usage.limits.company_searches === -1
                           ? "0%"
-                          : `${Math.min((usage.usage.regenerations / usage.limits.regenerations) * 100, 100)}%`,
+                          : usage.limits.company_searches === 0
+                            ? "0%"
+                            : `${Math.min((usage.extra_company_searches / usage.limits.company_searches) * 100, 100)}%`,
                     }}
                   />
                 </div>

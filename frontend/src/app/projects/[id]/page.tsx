@@ -251,6 +251,17 @@ export default function ProjectPage({
           setCharCount(latest.answer.length);
           setEvalResult(latest.evaluation);
           setSelectedVersionId(latest.id);
+          if (latest.resume_id) {
+            setSelectedResumeId(latest.resume_id);
+            try {
+              const full = await api.getResume(latest.resume_id);
+              setResumeStructured(full.structured_data ?? null);
+            } catch {
+              // ignore
+            }
+          }
+          if (latest.char_limit) setCharLimit(String(latest.char_limit));
+          if (latest.mode) setMode(latest.mode as "question" | "general");
         } else if (proj.answer) {
           // 버전 없는 기존 프로젝트 호환
           setAnswer(proj.answer);
@@ -361,7 +372,7 @@ export default function ProjectPage({
       setCharCount(result.char_count);
 
       let evalRes = null;
-      if (usage?.plan !== "free") {
+      if (canEvaluate) {
         setGenStep("evaluating");
         setEvalEvents([]);
 
@@ -422,6 +433,10 @@ export default function ProjectPage({
       (usage.limits.regenerations > 0 &&
         usage.usage.regenerations >= usage.limits.regenerations));
 
+  // 쿠폰 보유 free 플랜도 평가 가능
+  const canEvaluate =
+    usage?.plan !== "free" || (usage?.limits.regenerations ?? 0) > 0;
+
   const handleRegenerate = async () => {
     if (!project || !evalResult) return;
     if (regenLimitReached) {
@@ -458,7 +473,7 @@ export default function ProjectPage({
       setCharCount(result.char_count);
 
       let evalRes = null;
-      if (usage?.plan !== "free") {
+      if (canEvaluate) {
         setGenStep("evaluating");
         setEvalEvents([]);
 
@@ -508,6 +523,53 @@ export default function ProjectPage({
         setError(msg);
         setGenStep("done");
       }
+    }
+  };
+
+  const handleEvaluateOnly = async () => {
+    if (!project || !answer) return;
+    const effectiveQuestion =
+      mode === "general"
+        ? "이 채용공고에 맞는 자기소개서를 작성해주세요. 지원동기, 직무 관련 경험과 역량, 입사 후 포부를 포함해주세요."
+        : question;
+
+    setGenStep("evaluating");
+    setEvalEvents([]);
+    setError("");
+
+    try {
+      const evalRes = await api.evaluateStream(
+        {
+          question: effectiveQuestion,
+          answer,
+          job_analysis: project.job_analysis,
+          resume_structured: resumeStructured,
+          company_size: project.companies?.company_size ?? null,
+        },
+        (ev) => setEvalEvents((prev) => [...prev, ev]),
+      );
+      setEvalResult(evalRes);
+      setGenStep("done");
+
+      // 선택된 버전에 평가 결과 저장
+      if (selectedVersionId) {
+        await api
+          .updateVersion(project.id, selectedVersionId, { evaluation: evalRes })
+          .catch(() => {});
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "API error";
+      if (msg.startsWith("PLAN_LIMIT|")) {
+        toast.error(msg.split("|")[1], {
+          action: {
+            label: "플랜 업그레이드",
+            onClick: () => router.push("/pricing"),
+          },
+        });
+      } else {
+        setError(msg);
+      }
+      setGenStep("done");
     }
   };
 
@@ -937,7 +999,9 @@ export default function ProjectPage({
                             <p className="text-xs font-medium text-muted-foreground">
                               회사 정보
                             </p>
-                            {usage && usage.plan !== "free" ? (
+                            {usage &&
+                            (usage.plan !== "free" ||
+                              usage.extra_company_searches > 0) ? (
                               <button
                                 onClick={async () => {
                                   setResearchingCompany(true);
@@ -945,10 +1009,32 @@ export default function ProjectPage({
                                     const researched =
                                       await api.researchCompany(project.id);
                                     setProject(researched);
-                                  } catch {
-                                    toast.error(
-                                      "회사 정보 조사에 실패했습니다.",
-                                    );
+                                    if (
+                                      usage.plan === "free" &&
+                                      usage.extra_company_searches > 0
+                                    ) {
+                                      setUsage((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              extra_company_searches:
+                                                prev.extra_company_searches - 1,
+                                            }
+                                          : prev,
+                                      );
+                                    }
+                                  } catch (err: unknown) {
+                                    const msg =
+                                      err instanceof Error ? err.message : "";
+                                    if (msg.includes("COMPANY_SEARCH_LIMIT")) {
+                                      toast.error(
+                                        "회사 검색 크레딧이 부족합니다. 쿠폰으로 추가하세요.",
+                                      );
+                                    } else {
+                                      toast.error(
+                                        "회사 정보 조사에 실패했습니다.",
+                                      );
+                                    }
                                   } finally {
                                     setResearchingCompany(false);
                                   }
@@ -956,6 +1042,11 @@ export default function ProjectPage({
                                 className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
                               >
                                 자동 검색
+                                {usage.plan === "free" && (
+                                  <span className="ml-1 text-[10px] text-muted-foreground">
+                                    ({usage.extra_company_searches}회 남음)
+                                  </span>
+                                )}
                               </button>
                             ) : (
                               <span className="text-[10px] text-muted-foreground/50 bg-muted/40 rounded px-1.5 py-0.5">
@@ -1585,28 +1676,49 @@ export default function ProjectPage({
                                   {/* prettier-ignore */}
                                   <li className="text-foreground/60 font-semibold">꼭 읽어보시고 수정하세요.</li>
                                 </ul>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={handleRegenerate}
-                                  disabled={regenLimitReached || isLoading}
-                                  title={
-                                    usage?.limits.regenerations === 0
-                                      ? "Free 플랜에서는 재생성이 불가합니다. 업그레이드하세요."
-                                      : regenLimitReached
-                                        ? "이번 달 재생성 횟수를 모두 사용했습니다"
-                                        : undefined
-                                  }
-                                  className="flex flex-col items-end leading-tight h-auto py-2"
-                                >
-                                  <span>피드백 반영 재생성</span>
-                                  {usage && usage.limits.regenerations > 0 && (
-                                    <span className="text-xs text-muted-foreground">
-                                      ({usage.usage.regenerations}/
-                                      {usage.limits.regenerations})
-                                    </span>
-                                  )}
-                                </Button>
+                                <div className="flex flex-col items-end gap-2">
+                                  {canEvaluate &&
+                                    !evalResult &&
+                                    genStep === "done" && (
+                                      <Button
+                                        size="sm"
+                                        onClick={handleEvaluateOnly}
+                                        disabled={isLoading}
+                                        className="flex flex-col items-end leading-tight h-auto py-2"
+                                      >
+                                        <span>평가하기</span>
+                                      </Button>
+                                    )}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleRegenerate}
+                                    disabled={
+                                      regenLimitReached ||
+                                      isLoading ||
+                                      !evalResult
+                                    }
+                                    title={
+                                      !evalResult
+                                        ? "먼저 자소서를 평가해주세요"
+                                        : usage?.limits.regenerations === 0
+                                          ? "Free 플랜에서는 재생성이 불가합니다. 업그레이드하세요."
+                                          : regenLimitReached
+                                            ? "이번 달 재생성 횟수를 모두 사용했습니다"
+                                            : undefined
+                                    }
+                                    className="flex flex-col items-end leading-tight h-auto py-2"
+                                  >
+                                    <span>피드백 반영 재생성</span>
+                                    {usage &&
+                                      usage.limits.regenerations > 0 && (
+                                        <span className="text-xs text-muted-foreground">
+                                          ({usage.usage.regenerations}/
+                                          {usage.limits.regenerations})
+                                        </span>
+                                      )}
+                                  </Button>
+                                </div>
                               </div>
                             )}
                           </CardContent>
@@ -1628,7 +1740,45 @@ export default function ProjectPage({
                         {genStep === "done" &&
                           !evalResult &&
                           usage?.plan === "free" &&
-                          answer && (
+                          answer &&
+                          (canEvaluate ? (
+                            <Card className="border-primary/30 bg-primary/5">
+                              <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                                  <svg
+                                    className="h-6 w-6 text-primary"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+                                    />
+                                  </svg>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <p className="font-semibold text-foreground">
+                                    9인 AI 평가를 시작할 수 있습니다
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    HR 담당자, 현업 팀장, 채용 리더 9명의 평가와
+                                    <br />
+                                    서류 통과 확률을 확인해보세요.
+                                  </p>
+                                </div>
+                                <Button
+                                  onClick={handleEvaluateOnly}
+                                  disabled={isLoading}
+                                  className="mt-1"
+                                >
+                                  지금 평가하기
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          ) : (
                             <Card className="border-primary/30 bg-primary/5">
                               <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
                                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
@@ -1665,7 +1815,7 @@ export default function ProjectPage({
                                 </Button>
                               </CardContent>
                             </Card>
-                          )}
+                          ))}
                       </motion.div>
                     </motion.div>
                   )}

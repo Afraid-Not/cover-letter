@@ -44,7 +44,7 @@ cover-letter/
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /payments/success, /payments/fail
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /payments/success, /payments/fail, /auth/callback
 │       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
 │       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, card, dialog…
 │       ├── hooks/            # use-navigation-guard (작업 중 브라우저 이탈 차단)
@@ -54,7 +54,10 @@ cover-letter/
 │   ├── 003_match_companies_function.sql
 │   ├── 004_add_plan_usage_tracking.sql  # profiles 플랜 컬럼 + is_regeneration 플래그
 │   ├── 005_avatars_storage.sql        # profiles avatar_url/bio 컬럼 + avatars 스토리지 버킷 + RLS
-│   └── 008_subscriptions.sql          # subscriptions 테이블 (구독 결제 정보)
+│   ├── 008_subscriptions.sql          # subscriptions 테이블 (구독 결제 정보)
+│   ├── 009_coupons.sql                # coupons 테이블 + profiles.extra_generations 컬럼
+│   ├── 010_soft_delete_projects.sql   # generations.deleted_at 컬럼 (소프트 삭제)
+│   └── 011_company_search_credits.sql # profiles.extra_company_searches + coupons.bonus_company_searches
 ├── email-templates/          # Supabase Auth 이메일 템플릿 (가입 인증)
 ├── data/data.txt             # 합격 자소서 39건 원본
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
@@ -70,6 +73,7 @@ cover-letter/
 - `generations` — 생성 이력 (자소서 + 평가 결과, user_id + RLS)
   - `company_research jsonb` — 회사 조사 결과 (미션/비전/제품·서비스)
   - `is_regeneration boolean` — 피드백 기반 재생성 여부 (월별 쿼터 구분용)
+  - `deleted_at timestamptz` — 소프트 삭제 타임스탬프 (월별 사용량 카운트 보존)
 - `companies` — 회사 조사 캐시 (embedding 포함, 중복 검색 방지)
 - `profiles` — 사용자 프로필 (user_id + RLS), `/api/profiles` CRUD
   - `plan` — free / pro / enterprise (기본값 free)
@@ -78,8 +82,12 @@ cover-letter/
   - `job_embedding` — 직무명 벡터 (유사도 검색용)
   - `avatar_url` — 프로필 사진 URL (Supabase Storage avatars 버킷)
   - `bio` — 자기소개 (최대 200자)
+  - `extra_regenerations` — 관리자가 부여한 추가 재생성 횟수
+  - `extra_generations` — 쿠폰으로 적립된 추가 생성 횟수
+  - `extra_company_searches` — 쿠폰/관리자로 부여된 추가 회사 검색 크레딧 (free 플랜 전용)
 - `avatars` (Storage Bucket) — 프로필 사진 저장 (public read, 소유자만 write); 폴더 구조: `{user_id}/{filename}`
 - `subscriptions` — 구독 결제 정보 (user_id, plan, billing_key, customer_key, status, amount, last_billed_at, next_billing_date)
+- `coupons` — 쿠폰 (code PK, expires_at, bonus_generations, bonus_regenerations, bonus_company_searches, used_by, used_at); RLS로 직접 접근 차단, API만 사용
 
 ## 주요 설계 결정
 
@@ -148,10 +156,11 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - **접근**: `profiles.role = 'admin'`인 유저만 `/admin` 페이지 진입 가능 (`auth-provider`에서 `role` 노출)
 - **관리자 대시보드** (`frontend/src/app/admin/page.tsx`):
   - KPI 카드: 총 유저 수, 오늘/총 생성 수, 플랜 분포
-  - 유저 관리 탭: 플랜 드롭다운 변경, 추가 재생성 횟수 스피너 즉시 저장
+  - 유저 관리 탭: 플랜 드롭다운 변경, 추가 재생성 횟수·회사검색 크레딧 스피너 즉시 저장
   - 생성 이력 탭: 최근 100건 조회
   - 자소서 등록 이력 탭: 최근 100건 조회
   - 플랜 구매 설정: `app_settings` 테이블의 `plan_{free|pro|enterprise}_enabled` 토글
+  - **쿠폰 관리 탭**: 쿠폰 생성(생성횟수/재생성횟수/회사검색횟수 설정, 랜덤 코드 자동 생성, 7일 만료) + 쿠폰 목록(상태: 유효/만료/사용됨)
 - **관리자 API** (`/api/admin/*`): `_check_admin()` 함수로 권한 검증
   - `GET /api/admin/stats` — KPI 통계
   - `GET /api/admin/users` — 전체 유저 목록 (Supabase Auth Admin API + profiles 조인)
@@ -161,19 +170,27 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
   - `PATCH /api/admin/settings` — 플랜 on/off 설정 변경
   - `PATCH /api/admin/users/{user_id}/plan` — 유저 플랜 강제 변경
   - `PATCH /api/admin/users/{user_id}/extra-regenerations` — 추가 재생성 횟수 설정
+  - `PATCH /api/admin/users/{user_id}/extra-company-searches` — 추가 회사 검색 크레딧 설정
+  - `GET /api/admin/coupons` — 쿠폰 목록 조회
+  - `POST /api/admin/coupons` — 쿠폰 생성 (code, bonus_generations, bonus_regenerations, bonus_company_searches, 7일 만료)
 - **퍼블릭 설정 API**: `GET /api/plan-settings` — 인증 없이 플랜 활성 여부 반환, pricing 페이지에서 사용
-- **`/api/usage` 개선**: `extra_regenerations`를 `limits.regenerations`에 합산하여 반환 (무제한 플랜 제외)
+- **`/api/usage` 개선**: `extra_regenerations`/`extra_generations`/`extra_company_searches`를 각 `limits`에 합산 반환 (무제한 플랜 제외), `extra_company_searches` 필드 별도 노출
 - **pricing 페이지 연동**: 페이지 진입 시 `/api/plan-settings` fetch → 비활성 플랜 카드 dimmed + 버튼 disabled
 - **마이그레이션**: `migration/007_admin.sql` — `profiles.role`, `profiles.extra_regenerations`, `app_settings` 테이블
 
 ## 플랜 시스템 (api/main.py)
 
-- `PLAN_LIMITS` dict: free (이력서 1개, 생성 5회/월, 재생성 0회) | pro (이력서 10개, 생성 무제한, 재생성 5회/월) | enterprise (모두 무제한)
+- `PLAN_LIMITS` dict: free (이력서 1개, 생성 5회/월, 재생성 0회, 회사검색 0회) | pro (이력서 10개, 생성 무제한, 재생성 5회/월, 회사검색 무제한) | enterprise (모두 무제한)
 - 월별 사용량 추적: `_count_monthly_usage()` — `is_regeneration` 플래그로 생성/재생성 구분
 - `/api/generate`, `/api/resumes` 엔드포인트에서 쿼터 초과 시 HTTP 403 `PLAN_LIMIT` 반환
 - `/api/usage` — 현재 플랜 + 월별 사용량 조회
 - `/api/profiles/plan` PATCH — 플랜 변경
 - 회원가입 플로우: 회원가입 → `/pricing?onboarding=1` → 플랜 선택 → `/welcome`
+- **쿠폰 시스템**: free/pro 플랜 유저가 `POST /api/coupons/redeem`으로 코드 입력 시 `extra_generations`/`extra_regenerations`/`extra_company_searches` 적립 (enterprise 제외, 1인 1회)
+- **소프트 삭제**: 프로젝트 삭제 시 `deleted_at` 설정 — 버전 행 유지로 월별 사용량 카운트 보존; 목록 조회 시 `is_("deleted_at", "null")`로 필터
+- **평가 권한**: free 플랜도 `extra_regenerations > 0`이면 평가 허용 (`canEvaluate` 로직)
+- **회사 자동 검색**: free 플랜은 `extra_company_searches` 크레딧 소모; 부족 시 HTTP 403 `COMPANY_SEARCH_LIMIT` 반환
+- **회원 탈퇴**: `DELETE /api/account` — service role key로 Supabase Auth 유저 삭제
 
 ## Toss Payments 결제 시스템
 
@@ -193,17 +210,34 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 
 ## 프로젝트 플로우
 
-- 메인 대시보드(`/`) → 프로젝트 카드 목록 (status: draft/ready/generated/evaluated)
+- 메인 대시보드(`/`) → 프로젝트 카드 목록 (status: draft/ready/generated/evaluated, 소프트 삭제된 항목 제외)
 - 프로젝트 생성 → 채용공고 입력 → 자동 분석 → 분석 결과 확인/수정 모달 → `/projects/[id]`로 이동
 - 프로젝트 상세(`/projects/[id]`) → 4단계 위자드: 채용공고 → 이력서 → 작성설정 → 결과
+  - 버전 선택 시 `resume_id`/`char_limit`/`mode` 자동 복원
+  - 생성 후 `canEvaluate`이면 자동 평가; 평가 없는 버전엔 "평가하기" 버튼 노출 (`handleEvaluateOnly`)
+  - 평가 결과는 `PATCH /api/projects/{id}/versions/{vid}`로 버전 + 루트 행에 동시 저장
 - Step 1에서 채용 공고 요약 + 회사 정보를 2열 그리드로 나란히 표시 (`grid-cols-2 items-stretch`)
 - Step 1에서 분석 결과(회사/직무/역량/키워드) 인라인 수정 가능
 - 회사 정보 자동 조사 결과 없을 시 미션/비전/주요 제품서비스 직접 입력 폼 표시 → `company_research jsonb`에 저장
+- 회사 자동 검색 버튼: free 플랜은 크레딧 잔여량 표시, 크레딧 소진 시 버튼 숨김
 - 회사명/직무 미입력 시 다음 단계 진행 불가
 - 프로젝트 데이터는 `generations` 테이블 재사용 (별도 테이블 없음)
 - `use-navigation-guard` 훅으로 생성/평가 중 브라우저 이탈(새로고침·뒤로가기) 차단
-- 마이페이지(`/mypage`) → 사용량 지표(이력서/생성/재생성/플랜) + 프로필 수정 + 최근 프로젝트
+- 마이페이지(`/mypage`) → 사용량 지표(이력서/생성/재생성/플랜/회사검색 크레딧) + 프로필 수정 + 통합 활동 피드(`/api/activity`) + 쿠폰 등록 모달 + 회원 탈퇴 모달
 - 요금제 페이지(`/pricing`) → Free/Pro/Enterprise 비교 + 플랜 변경
+- `/auth/callback` — Google OAuth 리다이렉트 콜백 처리
+
+## 신규 API 엔드포인트 (최신)
+
+| 메서드 | 경로                                           | 설명                                                         |
+| ------ | ---------------------------------------------- | ------------------------------------------------------------ |
+| GET    | `/api/activity`                                | 통합 활동 피드 (프로젝트 생성·이력서 등록·재생성, 최근 30건) |
+| DELETE | `/api/account`                                 | 회원 탈퇴 (service role key로 Auth 유저 삭제)                |
+| PATCH  | `/api/projects/{id}/versions/{vid}`            | 버전 평가 결과 업데이트 (버전 + 루트 행 동시)                |
+| POST   | `/api/coupons/redeem`                          | 쿠폰 사용 (extra\_\* 적립, enterprise 제외, 1인 1회)         |
+| GET    | `/api/admin/coupons`                           | 관리자: 쿠폰 목록 조회                                       |
+| POST   | `/api/admin/coupons`                           | 관리자: 쿠폰 생성 (7일 만료)                                 |
+| PATCH  | `/api/admin/users/{id}/extra-company-searches` | 관리자: 회사 검색 크레딧 설정                                |
 
 ## 코드 컨벤션
 

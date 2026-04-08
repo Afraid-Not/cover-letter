@@ -10,6 +10,7 @@ import {
   type AdminSettings,
   type AdminGeneration,
   type AdminResume,
+  type AdminCoupon,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -157,8 +158,14 @@ export default function AdminPage() {
   const [generations, setGenerations] = useState<AdminGeneration[]>([]);
   const [resumes, setResumes] = useState<AdminResume[]>([]);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
   const [fetching, setFetching] = useState(true);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [couponCreating, setCouponCreating] = useState(false);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponBonusGen, setCouponBonusGen] = useState(5);
+  const [couponBonusRegen, setCouponBonusRegen] = useState(25);
+  const [couponBonusSearch, setCouponBonusSearch] = useState(0);
 
   useEffect(() => {
     if (!loading && role !== "admin") {
@@ -169,18 +176,20 @@ export default function AdminPage() {
   const fetchAll = useCallback(async () => {
     setFetching(true);
     try {
-      const [s, u, g, rv, cfg] = await Promise.all([
+      const [s, u, g, rv, cfg, cp] = await Promise.all([
         adminApi.getStats(),
         adminApi.listUsers(),
         adminApi.listGenerations(),
         adminApi.listResumes(),
         adminApi.getSettings(),
+        adminApi.listCoupons(),
       ]);
       setStats(s);
       setUsers(u);
       setGenerations(g);
       setResumes(rv);
       setSettings(cfg);
+      setCoupons(cp);
     } catch (e) {
       console.error(e);
     } finally {
@@ -223,6 +232,37 @@ export default function AdminPage() {
         u.user_id === userId ? { ...u, extra_regenerations: value } : u,
       ),
     );
+  };
+
+  const handleSetExtraCompanySearch = async (userId: string, value: number) => {
+    await adminApi.setExtraCompanySearches(userId, value);
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.user_id === userId ? { ...u, extra_company_searches: value } : u,
+      ),
+    );
+  };
+
+  const handleCreateCoupon = async () => {
+    setCouponCreating(true);
+    setCouponError(null);
+    const code = Array.from(crypto.getRandomValues(new Uint8Array(6)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase();
+    try {
+      const created = await adminApi.createCoupon(
+        code,
+        couponBonusGen,
+        couponBonusRegen,
+        couponBonusSearch,
+      );
+      setCoupons((prev) => [created, ...prev]);
+    } catch (e) {
+      setCouponError((e as Error).message);
+    } finally {
+      setCouponCreating(false);
+    }
   };
 
   if (loading || role !== "admin") return null;
@@ -316,6 +356,9 @@ export default function AdminPage() {
             <TabsTrigger value="resumes" className="text-xs">
               자소서 등록 이력 ({resumes.length})
             </TabsTrigger>
+            <TabsTrigger value="coupons" className="text-xs">
+              쿠폰 관리 ({coupons.length})
+            </TabsTrigger>
           </TabsList>
 
           {/* 유저 테이블 */}
@@ -340,6 +383,9 @@ export default function AdminPage() {
                         </th>
                         <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
                           추가 재생성
+                        </th>
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          회사검색 크레딧
                         </th>
                         <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
                           가입일
@@ -385,6 +431,14 @@ export default function AdminPage() {
                               onSave={(v) => handleSetExtraRegen(u.user_id, v)}
                             />
                           </td>
+                          <td className="px-4 py-3">
+                            <InlineNumber
+                              value={u.extra_company_searches ?? 0}
+                              onSave={(v) =>
+                                handleSetExtraCompanySearch(u.user_id, v)
+                              }
+                            />
+                          </td>
                           <td className="px-4 py-3 text-xs text-muted-foreground">
                             {u.created_at
                               ? new Date(u.created_at).toLocaleDateString(
@@ -397,7 +451,7 @@ export default function AdminPage() {
                       {users.length === 0 && !fetching && (
                         <tr>
                           <td
-                            colSpan={6}
+                            colSpan={7}
                             className="px-4 py-8 text-center text-xs text-muted-foreground"
                           >
                             유저 없음
@@ -559,6 +613,189 @@ export default function AdminPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* 쿠폰 관리 탭 */}
+          <TabsContent value="coupons">
+            <div className="space-y-4">
+              {/* 쿠폰 생성 폼 */}
+              <Card className="bg-card border-border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold">
+                    쿠폰 생성
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-3 items-end">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">
+                        생성 횟수
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={couponBonusGen}
+                        onChange={(e) =>
+                          setCouponBonusGen(Math.max(0, Number(e.target.value)))
+                        }
+                        className="w-24 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs font-semibold text-zinc-50 focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">
+                        재생성 횟수
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={couponBonusRegen}
+                        onChange={(e) =>
+                          setCouponBonusRegen(
+                            Math.max(0, Number(e.target.value)),
+                          )
+                        }
+                        className="w-24 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs font-semibold text-zinc-50 focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">
+                        회사검색 횟수
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={couponBonusSearch}
+                        onChange={(e) =>
+                          setCouponBonusSearch(
+                            Math.max(0, Number(e.target.value)),
+                          )
+                        }
+                        className="w-24 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs font-semibold text-zinc-50 focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handleCreateCoupon}
+                      disabled={couponCreating}
+                      className="text-xs bg-violet-600 hover:bg-violet-700 text-white"
+                    >
+                      {couponCreating ? "생성 중..." : "랜덤 쿠폰 생성"}
+                    </Button>
+                  </div>
+                  {couponError && (
+                    <p className="mt-2 text-xs text-red-400">{couponError}</p>
+                  )}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    생성된 쿠폰은 7일 후 만료
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* 쿠폰 목록 */}
+              <Card className="bg-card border-border">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-left">
+                          <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                            코드
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                            생성일
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                            만료일
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                            생성+
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                            재생성+
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                            검색+
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                            상태
+                          </th>
+                          <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                            사용일
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {coupons.map((c) => {
+                          const expired = new Date(c.expires_at) < new Date();
+                          const used = !!c.used_by;
+                          return (
+                            <tr
+                              key={c.code}
+                              className="border-b border-border/50 hover:bg-zinc-800/30 transition-colors"
+                            >
+                              <td className="px-4 py-3 text-xs font-mono font-semibold text-foreground tracking-widest">
+                                {c.code}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {new Date(c.created_at).toLocaleDateString(
+                                  "ko-KR",
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {new Date(c.expires_at).toLocaleDateString(
+                                  "ko-KR",
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                +{c.bonus_generations ?? 5}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                +{c.bonus_regenerations ?? 25}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                +{c.bonus_company_searches ?? 0}
+                              </td>
+                              <td className="px-4 py-3">
+                                {used ? (
+                                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300">
+                                    사용됨
+                                  </span>
+                                ) : expired ? (
+                                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-900/50 text-red-300">
+                                    만료
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-300">
+                                    유효
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {c.used_at
+                                  ? new Date(c.used_at).toLocaleDateString(
+                                      "ko-KR",
+                                    )
+                                  : "-"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {coupons.length === 0 && !fetching && (
+                          <tr>
+                            <td
+                              colSpan={8}
+                              className="px-4 py-8 text-center text-xs text-muted-foreground"
+                            >
+                              생성된 쿠폰 없음
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

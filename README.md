@@ -18,9 +18,15 @@
 - **피드백 반영 재생성** — 평가 결과 기반 자동 개선
 - **작업 중 이탈 차단** — 생성/평가 중 브라우저 새로고침·뒤로가기 차단
 - **플랜 시스템** — Free / Pro / Enterprise 3단계 요금제, 월별 생성/재생성 쿼터 관리
-- **마이페이지** — 사용량 지표, 프로필 수정 (이름/희망직무/자기소개), 아바타 사진 업로드, 최근 프로젝트 목록
+- **Toss Payments 구독 결제** — 빌링키 방식 정기 결제, Pro/Enterprise 플랜 자동 갱신
+- **쿠폰 시스템** — 쿠폰 코드 입력으로 추가 생성/재생성/회사검색 크레딧 적립 (1인 1회)
+- **회사 검색 크레딧** — Free 플랜 유저의 회사 자동 조사 횟수를 크레딧으로 관리
+- **소프트 삭제** — 프로젝트 삭제 시 버전 행 유지로 월별 사용량 카운트 보존
+- **Google OAuth 로그인** — Supabase Auth Google 소셜 로그인 + `/auth/callback` 처리
+- **온보딩 페이지** — 회원가입 후 커리어 정보(이름/희망직무/경력/학력/전공) + 약관 동의 입력
+- **마이페이지** — 사용량 지표, 프로필 수정 (이름/희망직무/자기소개), 아바타 사진 업로드, 통합 활동 피드, 쿠폰 등록 모달, 회원 탈퇴
 - **요금제 페이지** — 플랜 비교 및 선택 UI; 관리자가 비활성화한 플랜은 버튼 자동 차단
-- **관리자 대시보드** — `/admin`; KPI 카드, 유저 관리 (플랜 변경·추가 재생성 부여), 생성/이력서 등록 이력, 플랜 구매 on/off 설정
+- **관리자 대시보드** — `/admin`; KPI 카드, 유저 관리 (플랜 변경·크레딧 부여), 생성/이력서 등록 이력, 플랜 구매 on/off 설정, 쿠폰 생성·목록 관리
 - **약관/개인정보처리방침** — `/terms`, `/privacy` 정적 페이지
 
 ## 기술 스택
@@ -33,6 +39,8 @@
 | 임베딩     | OpenAI text-embedding-3-small                      |
 | PDF 파싱   | PyMuPDF                                            |
 | 회사 조사  | OpenAI web search + Tavily API + DART 공시 API     |
+| 결제       | Toss Payments (빌링키 정기 구독)                   |
+| 인증       | Supabase Auth (이메일 + Google OAuth)              |
 
 ## 아키텍처
 
@@ -66,7 +74,7 @@
 
 - Python 3.11+, conda, Node.js 18+
 - Supabase 프로젝트 (pgvector 확장)
-- OpenAI API Key, Tavily API Key, DART API Key
+- OpenAI API Key, Tavily API Key, DART API Key, Toss Payments Secret Key
 
 ### 백엔드
 
@@ -80,7 +88,7 @@ uv pip install openai "supabase>=2.0" typer rich python-dotenv pymupdf "fastapi[
 
 # .env 설정
 cp .env.example .env
-# SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, TAVILY_API_KEY, DART_API_KEY 입력
+# SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, TAVILY_API_KEY, DART_API_KEY, TOSS_SECRET_KEY 입력
 
 # 합격 자소서 임베딩 (최초 1회)
 python -m src.embedder
@@ -131,7 +139,7 @@ python -m src.cli embed
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI 백엔드 (REST + SSE + 프로젝트 CRUD + 프로필 + 플랜 API)
+├── api/main.py              # FastAPI 백엔드 (REST + SSE + 프로젝트 CRUD + 프로필 + 플랜 + 결제 API)
 ├── src/
 │   ├── embedder.py           # 합격 자소서 → Parent-Child 청킹 → 임베딩
 │   ├── parser.py             # 이력서 파싱 + Supabase 저장/조회
@@ -144,7 +152,10 @@ cover-letter/
 │   └── cli.py                # Typer CLI
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /onboarding, /history,
+│       │                     #         /projects/[id], /resumes, /mypage, /pricing,
+│       │                     #         /terms, /privacy, /auth/callback,
+│       │                     #         /payments/success, /payments/fail
 │       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
 │       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, dialog…
 │       ├── hooks/            # use-navigation-guard
@@ -154,7 +165,11 @@ cover-letter/
 │   ├── 003_match_companies_function.sql
 │   ├── 004_add_plan_usage_tracking.sql
 │   ├── 005_avatars_storage.sql         # 프로필 아바타 스토리지 + RLS 정책
-│   └── 007_admin.sql                   # profiles.role, extra_regenerations, app_settings 테이블
+│   ├── 007_admin.sql                   # profiles.role, extra_regenerations, app_settings 테이블
+│   ├── 008_subscriptions.sql           # subscriptions 테이블 (Toss Payments 구독 결제)
+│   ├── 009_coupons.sql                 # coupons 테이블 + profiles.extra_generations
+│   ├── 010_soft_delete_projects.sql    # generations.deleted_at (소프트 삭제)
+│   └── 011_company_search_credits.sql  # profiles.extra_company_searches + coupons.bonus_company_searches
 ├── email-templates/          # Supabase Auth 이메일 템플릿
 ├── data/data.txt             # 합격 자소서 원본 (39건)
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
