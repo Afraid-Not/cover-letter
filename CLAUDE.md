@@ -44,7 +44,7 @@ cover-letter/
 │   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /signup, /onboarding, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /admin, /auth/callback, /payments/success, /payments/fail
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /admin, /auth/callback, /payments/success, /payments/fail (※ /onboarding 삭제됨 → /signup?oauth=google으로 통합)
 │       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
 │       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, card, dialog…
 │       ├── hooks/            # use-navigation-guard (작업 중 브라우저 이탈 차단)
@@ -144,7 +144,7 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - **테마**: Soft/Pastel 다크 — 라벤더/바이올렛 톤 (primary hue 290)
 - **다크모드 색상**: background `oklch(0.135)`, card `oklch(0.26)`, border `oklch(0.32)` — 충분한 명도 차이 확보
 - **네비게이션**: 상단 고정 Navbar (로고 + 메뉴 + 현재 플랜 배지 + 마이페이지 링크 + 플랜 업그레이드 버튼 + 로그아웃), 사이드바는 프로젝트 상세 페이지에서만 사용; 이력서 미등록 시 등록 유도 툴팁 표시
-- **회원가입 2단계**: 이름, 생년월일(date picker), 전화번호, 약관 동의
+- **회원가입 3단계**: Step1(이메일/비밀번호) → Step2(이름/생년월일/전화번호/약관동의) → Step3(희망직무/전공/학력/취준상태); Google OAuth 신규 가입 시 `/signup?oauth=google`으로 리다이렉트하여 Step2부터 시작 (이메일·이름 자동 채움)
 - **웰컴 페이지** (`/welcome`): Framer Motion stagger 카드 애니메이션으로 핵심 기능 소개
 - **마이페이지** (`/mypage`): MetricCard + UsageBar 컴포넌트, 프로필 인라인 편집 (이름/희망직무/자기소개), 아바타 업로드 (카메라 아이콘 오버레이, Supabase Storage), Framer Motion stagger
 - **요금제 페이지** (`/pricing`): Free/Pro/Enterprise 3-tier 비교 카드, 플랜 선택 + toast 알림
@@ -232,7 +232,7 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - `use-navigation-guard` 훅으로 생성/평가 중 브라우저 이탈(새로고침·뒤로가기) 차단
 - 마이페이지(`/mypage`) → 사용량 지표(이력서/생성/재생성/플랜/회사검색 크레딧) + 프로필 수정 + 통합 활동 피드(`/api/activity`) + 쿠폰 등록 모달 + 회원 탈퇴 모달
 - 요금제 페이지(`/pricing`) → Free/Pro/Enterprise 비교 + 플랜 변경
-- `/auth/callback` — Google OAuth 리다이렉트 콜백 처리
+- `/auth/callback` — Google OAuth 콜백 처리: 기존 유저 → `/`, 신규 유저 → `/signup?oauth=google` (프로필 존재 여부로 구분)
 
 ## 전체 API 엔드포인트
 

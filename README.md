@@ -23,8 +23,7 @@
 - **회사 검색 크레딧** — Free 플랜 유저의 회사 자동 조사 횟수를 크레딧으로 관리
 - **소프트 삭제** — 프로젝트 삭제 시 버전 행 유지로 월별 사용량 카운트 보존
 - **Google OAuth 로그인** — Supabase Auth Google 소셜 로그인 + `/auth/callback` 처리
-- **회원가입 3단계 위자드** — 1단계(이메일/비밀번호) → 2단계(이름/생년월일/전화번호/약관) → 3단계(커리어 정보)
-- **온보딩 페이지** — 회원가입 후 커리어 정보(이름/희망직무/경력/학력/전공) + 약관 동의 입력
+- **회원가입 3단계 위자드** — 1단계(이메일/비밀번호) → 2단계(이름/생년월일/전화번호/약관) → 3단계(커리어 정보); Google OAuth 신규 가입 시 `/signup?oauth=google`으로 리다이렉트하여 2단계부터 시작
 - **마이페이지** — 사용량 지표, 프로필 수정 (이름/희망직무/자기소개), 아바타 사진 업로드, 통합 활동 피드, 쿠폰 등록 모달, 회원 탈퇴
 - **요금제 페이지** — 플랜 비교 및 선택 UI; 관리자가 비활성화한 플랜은 버튼 자동 차단
 - **관리자 대시보드** — `/admin`; KPI 카드, 유저 관리 (플랜 변경·크레딧 부여), 생성/이력서 등록 이력, 플랜 구매 on/off 설정, 쿠폰 생성·목록 관리
@@ -154,10 +153,10 @@ cover-letter/
 │   └── cli.py                # Typer CLI
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /signup, /onboarding, /history,
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history,
 │       │                     #         /projects/[id], /resumes, /mypage, /pricing,
 │       │                     #         /terms, /privacy, /auth/callback,
-│       │                     #         /payments/success, /payments/fail
+│       │                     #         /payments/success, /payments/fail, /admin
 │       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
 │       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, dialog…
 │       ├── hooks/            # use-navigation-guard

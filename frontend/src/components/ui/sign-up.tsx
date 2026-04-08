@@ -96,6 +96,10 @@ interface SignUpPageProps {
   onSignIn?: () => void;
   loading?: boolean;
   error?: string;
+  /** Google OAuth 모드: step 1 건너뛰고 step 2부터 시작 */
+  isOAuth?: boolean;
+  oauthEmail?: string;
+  oauthName?: string;
 }
 
 export interface SignUpFormData {
@@ -138,8 +142,11 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
   onSignIn,
   loading = false,
   error,
+  isOAuth = false,
+  oauthEmail = "",
+  oauthName = "",
 }) => {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(isOAuth ? 2 : 1);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -150,9 +157,9 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [form, setForm] = useState<SignUpFormData>({
-    email: "",
+    email: oauthEmail,
     password: "",
-    name: "",
+    name: oauthName,
     phone: "",
     birthDate: "",
     jobTitle: "",
@@ -207,7 +214,15 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
     onSignUp?.(form);
   };
 
-  const progressWidth = step === 1 ? "33%" : step === 2 ? "66%" : "100%";
+  const progressWidth = isOAuth
+    ? step === 2
+      ? "50%"
+      : "100%"
+    : step === 1
+      ? "33%"
+      : step === 2
+        ? "66%"
+        : "100%";
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-[#0b0713] via-[#110a1e] to-[#0a0610] flex items-center justify-center p-4 md:p-8">
@@ -229,17 +244,39 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
 
           {/* Progress — 로고 아래 고정 */}
           <div className="signin-element signin-delay-200 mb-6 max-w-sm mx-auto w-full">
-            <div className="flex justify-between text-xs text-muted-foreground mb-2">
-              <span className={step === 1 ? "text-primary font-medium" : ""}>
-                1단계 · 기본 정보
-              </span>
-              <span className={step === 2 ? "text-primary font-medium" : ""}>
-                2단계 · 개인 정보
-              </span>
-              <span className={step === 3 ? "text-primary font-medium" : ""}>
-                3단계 · 커리어
-              </span>
-            </div>
+            {isOAuth ? (
+              <>
+                <div className="flex justify-between text-xs text-muted-foreground mb-2">
+                  <span
+                    className={step === 2 ? "text-primary font-medium" : ""}
+                  >
+                    1단계 · 개인 정보
+                  </span>
+                  <span
+                    className={step === 3 ? "text-primary font-medium" : ""}
+                  >
+                    2단계 · 커리어
+                  </span>
+                </div>
+                {oauthEmail && (
+                  <p className="text-xs text-muted-foreground/70 mb-2">
+                    {oauthEmail}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="flex justify-between text-xs text-muted-foreground mb-2">
+                <span className={step === 1 ? "text-primary font-medium" : ""}>
+                  1단계 · 기본 정보
+                </span>
+                <span className={step === 2 ? "text-primary font-medium" : ""}>
+                  2단계 · 개인 정보
+                </span>
+                <span className={step === 3 ? "text-primary font-medium" : ""}>
+                  3단계 · 커리어
+                </span>
+              </div>
+            )}
             <div className="h-1 w-full bg-border rounded-full overflow-hidden">
               <div
                 className="h-full bg-primary rounded-full transition-all duration-500"
@@ -483,13 +520,15 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
                   </div>
 
                   <div className="flex gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setStep(1)}
-                      className="flex-none rounded-2xl border border-border py-3 px-5 hover:bg-secondary transition-colors"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
+                    {!isOAuth && (
+                      <button
+                        type="button"
+                        onClick={() => setStep(1)}
+                        className="flex-none rounded-2xl border border-border py-3 px-5 hover:bg-secondary transition-colors"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
                       type="submit"
                       className="flex-1 rounded-2xl bg-primary py-3 font-medium text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"

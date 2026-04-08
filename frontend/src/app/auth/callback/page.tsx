@@ -40,8 +40,8 @@ const CallbackHandler = () => {
       if (profile) {
         router.replace("/");
       } else {
-        // 소셜 신규 가입 → 커리어 정보 입력
-        router.replace("/onboarding");
+        // 소셜 신규 가입 → 회원가입 2단계(개인정보)부터 시작
+        router.replace("/signup?oauth=google");
       }
     };
 
