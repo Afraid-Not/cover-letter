@@ -42,7 +42,7 @@ export default function SignupPage() {
         agreed_to_terms: form.agreedToTerms,
       });
 
-      router.push("/welcome");
+      router.push("/pricing?onboarding=1");
     } catch (e) {
       setError(e instanceof Error ? e.message : "오류가 발생했습니다");
     } finally {
@@ -52,7 +52,7 @@ export default function SignupPage() {
 
   return (
     <SignUpPage
-      heroImageSrc="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=2160&q=80"
+      heroImageSrc="/login-page.png"
       onSignUp={handleSignUp}
       onSignIn={() => router.push("/login")}
       loading={loading}

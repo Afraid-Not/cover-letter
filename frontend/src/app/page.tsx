@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { BentoGrid } from "@/components/ui/bento-grid";
 import { api, getProjectStatus } from "@/lib/api";
-import type { Project, ProjectStatus } from "@/lib/api";
+import type { Project, ProjectStatus, UsageSummary } from "@/lib/api";
 import { AiLoader } from "@/components/ui/ai-loader";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 
@@ -500,6 +500,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [resumeMap, setResumeMap] = useState<Record<number, string>>({});
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [jobPosting, setJobPosting] = useState("");
@@ -509,6 +510,7 @@ export default function DashboardPage() {
   >(null);
   const [jobFile, setJobFile] = useState<File | null>(null);
   const [jobFileLoading, setJobFileLoading] = useState(false);
+  const [pastedImageName, setPastedImageName] = useState<string | null>(null);
 
   // 분석 확인 모달
   const [confirmProject, setConfirmProject] = useState<Project | null>(null);
@@ -520,8 +522,43 @@ export default function DashboardPage() {
   );
 
   useEffect(() => {
-    Promise.all([api.listProjects(), api.listResumes()])
-      .then(([projectData, resumeData]) => {
+    if (!showCreate) return;
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          e.preventDefault();
+          const name = `붙여넣기_이미지_${Date.now()}.png`;
+          const namedFile = new File([file], name, { type: file.type });
+          setJobFile(namedFile);
+          setPastedImageName(name);
+          setJobFileLoading(true);
+          try {
+            const res = await api.parseImage(namedFile);
+            setJobPosting(res.text);
+          } catch {
+            // handle error silently
+          } finally {
+            setJobFileLoading(false);
+          }
+          break;
+        }
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [showCreate]);
+
+  useEffect(() => {
+    Promise.all([
+      api.listProjects(),
+      api.listResumes(),
+      api.getUsage().catch(() => null),
+    ])
+      .then(([projectData, resumeData, usageData]) => {
         setProjects(Array.isArray(projectData) ? projectData : []);
         const map: Record<number, string> = {};
         if (Array.isArray(resumeData)) {
@@ -530,6 +567,7 @@ export default function DashboardPage() {
           });
         }
         setResumeMap(map);
+        setUsage(usageData);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -581,6 +619,7 @@ export default function DashboardPage() {
       setShowCreate(false);
       setJobPosting("");
       setJobFile(null);
+      setPastedImageName(null);
       setConfirmProject(project);
     } catch {
       // keep form open on error
@@ -621,13 +660,14 @@ export default function DashboardPage() {
                 setShowCreate(false);
                 setJobPosting("");
                 setJobFile(null);
+                setPastedImageName(null);
               }
             }}
           />
 
           {/* Modal */}
           <motion.div
-            className="relative z-10 w-full max-w-lg"
+            className="relative z-10 w-full max-w-2xl"
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -636,13 +676,32 @@ export default function DashboardPage() {
             <Card className="border-primary/20 shadow-2xl flex flex-col max-h-[90vh]">
               <CardContent className="pt-5 space-y-4 overflow-y-auto flex-1">
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-semibold">새 자소서 만들기</p>
+                  <div className="flex items-center gap-2.5">
+                    <p className="text-sm font-semibold">새 자소서 만들기</p>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-400/10 text-amber-700 text-[11px] font-medium">
+                      <svg
+                        className="w-3 h-3 shrink-0"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"
+                        />
+                      </svg>
+                      AI가 거부하면 스크린샷을 다시 찍어주세요.
+                    </span>
+                  </div>
                   <button
                     onClick={() => {
                       if (!creating) {
                         setShowCreate(false);
                         setJobPosting("");
                         setJobFile(null);
+                        setPastedImageName(null);
                       }
                     }}
                     className="text-muted-foreground hover:text-foreground transition-colors"
@@ -653,7 +712,7 @@ export default function DashboardPage() {
                 <div>
                   <p className="text-sm font-medium mb-2">채용공고 입력</p>
                   <Textarea
-                    placeholder="채용공고 전문을 붙여넣으세요..."
+                    placeholder="채용공고 전문을 붙여 넣으세요. (스크린샷 붙여넣기도 가능합니다.)"
                     value={jobPosting}
                     onChange={(e) => setJobPosting(e.target.value)}
                     rows={6}
@@ -707,9 +766,9 @@ export default function DashboardPage() {
                       disabled={creating}
                     />
                   </label>
-                  {jobFile && (
+                  {(jobFile || pastedImageName) && (
                     <span className="text-xs text-muted-foreground">
-                      {jobFile.name}
+                      {pastedImageName ?? jobFile?.name}
                     </span>
                   )}
                 </div>
@@ -732,6 +791,7 @@ export default function DashboardPage() {
                       setShowCreate(false);
                       setJobPosting("");
                       setJobFile(null);
+                      setPastedImageName(null);
                     }}
                     disabled={creating}
                   >
@@ -778,6 +838,77 @@ export default function DashboardPage() {
           </Button>
         </div>
 
+        {/* 플랜 사용량 카드 */}
+        {usage && (
+          <div className="rounded-xl border border-border bg-card shadow-sm px-5 py-4">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-medium text-foreground">
+                이번달 사용량
+              </p>
+              <span
+                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                  usage.plan === "pro"
+                    ? "bg-violet-100 text-violet-700 border-violet-200"
+                    : usage.plan === "enterprise"
+                      ? "bg-amber-100 text-amber-700 border-amber-200"
+                      : "bg-slate-100 text-slate-700 border-slate-200"
+                }`}
+              >
+                {usage.plan === "pro"
+                  ? "Pro"
+                  : usage.plan === "enterprise"
+                    ? "Enterprise"
+                    : "Free"}{" "}
+                Plan
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>등록된 이력서</span>
+                  <span className="font-medium text-foreground">
+                    {usage.usage.resumes}&nbsp;/&nbsp;
+                    {usage.limits.resumes === -1 ? "∞" : usage.limits.resumes}
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{
+                      width:
+                        usage.limits.resumes === -1
+                          ? "0%"
+                          : `${Math.min((usage.usage.resumes / usage.limits.resumes) * 100, 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>피드백 재생성</span>
+                  <span className="font-medium text-foreground">
+                    {usage.usage.regenerations}&nbsp;/&nbsp;
+                    {usage.limits.regenerations === -1
+                      ? "∞"
+                      : usage.limits.regenerations}
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-violet-500 transition-all"
+                    style={{
+                      width:
+                        usage.limits.regenerations === -1
+                          ? "0%"
+                          : `${Math.min((usage.usage.regenerations / usage.limits.regenerations) * 100, 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Loading */}
         {loading && (
           <div className="flex justify-center py-16">
@@ -800,9 +931,6 @@ export default function DashboardPage() {
               </div>
               <p className="font-heading text-xl text-foreground mt-2">
                 아직 생성된 자소서가 없습니다
-              </p>
-              <p className="text-muted-foreground text-sm mt-1">
-                첫 자소서를 만들어보세요
               </p>
               <Button
                 size="sm"

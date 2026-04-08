@@ -93,6 +93,7 @@ class CreateVersionRequest(BaseModel):
     char_limit: int | None = None
     resume_id: int | None = None
     job_analysis: dict | None = None
+    is_regeneration: bool = False  # 재생성 여부
 
 class ResumeRequest(BaseModel):
     source: str
@@ -139,7 +140,91 @@ def _get_user_id(token: str) -> str | None:
         return None
 
 
+# ── 플랜 제한 ──
+
+PLAN_LIMITS = {
+    "free":       {"resumes": 1,  "generations": 3,  "regenerations": 0},
+    "pro":        {"resumes": 10, "generations": -1, "regenerations": 5},   # -1 = unlimited
+    "enterprise": {"resumes": -1, "generations": -1, "regenerations": -1},
+}
+
+
+def _get_user_plan(sb, user_id: str) -> str:
+    try:
+        result = sb.table("profiles").select("plan").eq("user_id", user_id).single().execute()
+        return result.data.get("plan", "free") if result.data else "free"
+    except Exception:
+        return "free"
+
+
+def _get_month_start() -> str:
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    return datetime(now.year, now.month, 1, tzinfo=timezone.utc).isoformat()
+
+
+def _count_monthly_usage(sb, user_id: str) -> dict:
+    month_start = _get_month_start()
+    try:
+        gen_res = (
+            sb.table("generations")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("is_regeneration", False)
+            .filter("project_id", "not.is", "null")
+            .gte("created_at", month_start)
+            .execute()
+        )
+        regen_res = (
+            sb.table("generations")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("is_regeneration", True)
+            .filter("project_id", "not.is", "null")
+            .gte("created_at", month_start)
+            .execute()
+        )
+        return {"generations": gen_res.count or 0, "regenerations": regen_res.count or 0}
+    except Exception:
+        return {"generations": 0, "regenerations": 0}
+
+
+def _count_resumes(sb, user_id: str) -> int:
+    try:
+        res = sb.table("resumes").select("id", count="exact").eq("user_id", user_id).execute()
+        return res.count or 0
+    except Exception:
+        return 0
+
+
 # ── Endpoints ──
+
+@app.get("/api/check-email")
+async def check_email(email: str):
+    import httpx
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")
+    logging.info(f"[check-email] email={email} url={supabase_url}")
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                f"{supabase_url}/auth/v1/admin/users",
+                headers={
+                    "apikey": service_key,
+                    "Authorization": f"Bearer {service_key}",
+                },
+                params={"filter": email.lower().strip()},
+            )
+            logging.info(f"[check-email] status={resp.status_code} body={resp.text[:300]}")
+            if resp.status_code != 200:
+                return {"available": True}
+            users = resp.json().get("users", [])
+            exists = any((u.get("email") or "").lower() == email.lower().strip() for u in users)
+            return {"available": not exists}
+    except Exception as e:
+        logging.error(f"[check-email] error: {e}")
+        return {"available": True}
+
 
 @app.post("/api/analyze-job")
 async def analyze_job(req: AnalyzeJobRequest):
@@ -148,7 +233,30 @@ async def analyze_job(req: AnalyzeJobRequest):
 
 
 @app.post("/api/generate")
-async def generate(req: GenerateRequest):
+async def generate(req: GenerateRequest, request: Request):
+    # 플랜 한도 체크
+    token = _extract_token(request)
+    if token:
+        gen_user_id = _get_user_id(token)
+        if gen_user_id:
+            sb_plan = _get_sb(token)
+            plan = _get_user_plan(sb_plan, gen_user_id)
+            limits = PLAN_LIMITS[plan]
+            is_regen = bool(req.feedback and req.previous_answer)
+
+            if is_regen:
+                if limits["regenerations"] == 0:
+                    raise HTTPException(status_code=403, detail="PLAN_LIMIT|현재 플랜에서는 재생성이 불가합니다.")
+                elif limits["regenerations"] > 0:
+                    monthly = _count_monthly_usage(sb_plan, gen_user_id)
+                    if monthly["regenerations"] >= limits["regenerations"]:
+                        raise HTTPException(status_code=403, detail="PLAN_LIMIT|이번 달 재생성 횟수를 초과했습니다.")
+            else:
+                if limits["generations"] > 0:
+                    monthly = _count_monthly_usage(sb_plan, gen_user_id)
+                    if monthly["generations"] >= limits["generations"]:
+                        raise HTTPException(status_code=403, detail="PLAN_LIMIT|이번 달 자소서 생성 횟수를 초과했습니다.")
+
     from src.analyzer import analyze_job_posting, build_search_query
     from src.generator import generate_answer
     from src.parser import get_resume, process_resume
@@ -285,6 +393,15 @@ async def add_resume(req: ResumeRequest, request: Request):
     from src.parser import process_resume
     token = _extract_token(request)
     user_id = _get_user_id(token) if token else None
+    # 이력서 한도 체크
+    if user_id:
+        sb_check = _get_sb(token)
+        plan = _get_user_plan(sb_check, user_id)
+        limits = PLAN_LIMITS[plan]
+        if limits["resumes"] > 0:
+            count = _count_resumes(sb_check, user_id)
+            if count >= limits["resumes"]:
+                raise HTTPException(status_code=403, detail="PLAN_LIMIT|이력서 등록 한도에 도달했습니다.")
     try:
         return process_resume(req.source, req.name, user_id=user_id)
     except Exception as e:
@@ -297,6 +414,15 @@ async def upload_resume(request: Request, file: UploadFile = File(...), name: st
     from src.parser import process_resume
     token = _extract_token(request)
     user_id = _get_user_id(token) if token else None
+    # 이력서 한도 체크
+    if user_id:
+        sb_check = _get_sb(token)
+        plan = _get_user_plan(sb_check, user_id)
+        limits = PLAN_LIMITS[plan]
+        if limits["resumes"] > 0:
+            count = _count_resumes(sb_check, user_id)
+            if count >= limits["resumes"]:
+                raise HTTPException(status_code=403, detail="PLAN_LIMIT|이력서 등록 한도에 도달했습니다.")
 
     suffix = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
     content = await file.read()
@@ -339,11 +465,9 @@ async def delete_resume(resume_id: int):
 
 @app.post("/api/parse-image")
 async def parse_image(file: UploadFile = File(...)):
-    """이미지/PDF에서 GPT-4o 비전으로 텍스트를 추출한다."""
+    """이미지/PDF에서 Claude Haiku 비전으로 텍스트를 추출한다."""
     import base64
     import os
-
-    from openai import OpenAI
 
     content = await file.read()
     suffix = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "png"
@@ -362,19 +486,25 @@ async def parse_image(file: UploadFile = File(...)):
     b64 = base64.b64encode(content).decode("utf-8")
     mime = f"image/{suffix}" if suffix in ("png", "jpg", "jpeg", "webp", "gif") else "image/png"
 
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "이 이미지에 있는 모든 텍스트를 빠짐없이 추출해주세요. 원문 그대로 출력하세요."},
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-            ],
-        }],
-        temperature=0,
+    import anthropic
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": mime, "data": b64},
+                    },
+                    {"type": "text", "text": "이 채용공고 이미지에 있는 모든 텍스트를 빠짐없이 원문 그대로 추출해주세요."},
+                ],
+            }
+        ],
     )
-    return {"text": response.choices[0].message.content}
+    return {"text": response.content[0].text}
 
 
 # ── 생성 이력 ──
@@ -594,6 +724,7 @@ async def create_project_version(project_id: int, req: CreateVersionRequest, req
         "resume_id": req.resume_id if req.resume_id is not None else root["resume_id"],
         "answer": req.answer,
         "evaluation": req.evaluation,
+        "is_regeneration": req.is_regeneration,
     }
     if user_id:
         version_data["user_id"] = user_id
@@ -610,6 +741,33 @@ async def create_project_version(project_id: int, req: CreateVersionRequest, req
         raise HTTPException(status_code=500, detail=f"버전 저장 실패: {e}")
 
     return version_result.data[0]
+
+
+@app.get("/api/usage")
+async def get_usage(request: Request):
+    """현재 사용자의 플랜 및 사용량 조회."""
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    sb = _get_sb(token)
+    plan = _get_user_plan(sb, user_id)
+    limits = PLAN_LIMITS[plan]
+    monthly = _count_monthly_usage(sb, user_id)
+    resume_count = _count_resumes(sb, user_id)
+
+    return {
+        "plan": plan,
+        "limits": limits,
+        "usage": {
+            "resumes": resume_count,
+            "generations": monthly["generations"],
+            "regenerations": monthly["regenerations"],
+        },
+    }
 
 
 # ── 프로필 ──
@@ -650,6 +808,34 @@ async def upsert_profile(req: ProfileRequest, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"프로필 저장 실패: {e}")
 
+    return result.data[0]
+
+
+class ChangePlanRequest(BaseModel):
+    plan: str  # "free" | "pro" | "enterprise"
+
+
+@app.patch("/api/profiles/plan")
+async def change_plan(req: ChangePlanRequest, request: Request):
+    """사용자 플랜 변경."""
+    if req.plan not in ("free", "pro", "enterprise"):
+        raise HTTPException(status_code=400, detail="유효하지 않은 플랜입니다")
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    sb = _get_sb(token)
+    try:
+        result = sb.table("profiles").update({"plan": req.plan}).eq("user_id", user_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="프로필이 없습니다. 회원가입을 먼저 완료해주세요.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"플랜 변경 실패: {e}")
     return result.data[0]
 
 

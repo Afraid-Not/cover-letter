@@ -1,5 +1,14 @@
-import React, { useState } from "react";
-import { Eye, EyeOff, ChevronRight, ChevronLeft } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import Image from "next/image";
+import {
+  Eye,
+  EyeOff,
+  ChevronRight,
+  ChevronLeft,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+} from "lucide-react";
 
 interface SignUpPageProps {
   heroImageSrc?: string;
@@ -54,6 +63,10 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
   const [showConfirm, setShowConfirm] = useState(false);
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [matchError, setMatchError] = useState("");
+  const [emailStatus, setEmailStatus] = useState<
+    "idle" | "checking" | "available" | "taken"
+  >("idle");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [form, setForm] = useState<SignUpFormData>({
     email: "",
@@ -72,8 +85,29 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
   const set = (key: keyof SignUpFormData, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  const checkEmail = (email: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailStatus("idle");
+      return;
+    }
+    setEmailStatus("checking");
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `http://localhost:8000/api/check-email?email=${encodeURIComponent(email)}`,
+        );
+        const data = await res.json();
+        setEmailStatus(data.available ? "available" : "taken");
+      } catch {
+        setEmailStatus("idle");
+      }
+    }, 600);
+  };
+
   const handleNextStep = (e: React.FormEvent) => {
     e.preventDefault();
+    if (emailStatus === "taken") return;
     if (form.password !== passwordConfirm) {
       setMatchError("비밀번호가 일치하지 않습니다.");
       return;
@@ -97,9 +131,13 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
           <div className="flex flex-col gap-6">
             {/* Header */}
             <div className="signin-element signin-delay-100">
-              <h1 className="text-4xl md:text-5xl font-semibold leading-tight font-heading text-primary tracking-widest">
-                AURA
-              </h1>
+              <Image
+                src="/logo.png"
+                alt="AURA"
+                width={96}
+                height={33}
+                priority
+              />
               <p className="text-muted-foreground mt-2">
                 합격 자소서 기반 AI 코치와 함께 시작하세요
               </p>
@@ -151,11 +189,32 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
                       type="email"
                       placeholder="example@email.com"
                       value={form.email}
-                      onChange={(e) => set("email", e.target.value)}
+                      onChange={(e) => {
+                        set("email", e.target.value);
+                        checkEmail(e.target.value);
+                      }}
                       className={inputClass}
                       required
                     />
                   </GlassInputWrapper>
+                  {emailStatus === "checking" && (
+                    <p className="flex items-center gap-1 mt-1 pl-1 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      확인 중...
+                    </p>
+                  )}
+                  {emailStatus === "available" && (
+                    <p className="flex items-center gap-1 mt-1 pl-1 text-xs text-emerald-500">
+                      <CheckCircle2 className="w-3 h-3" />
+                      사용 가능한 이메일입니다
+                    </p>
+                  )}
+                  {emailStatus === "taken" && (
+                    <p className="flex items-center gap-1 mt-1 pl-1 text-xs text-rose-500">
+                      <XCircle className="w-3 h-3" />
+                      이미 사용 중인 이메일입니다
+                    </p>
+                  )}
                 </div>
 
                 <div className="signin-element signin-delay-400">
@@ -440,8 +499,6 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
           <div className="absolute inset-4 rounded-3xl bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
           <div className="signin-element signin-delay-500 absolute bottom-12 left-12 right-12">
             <p className="font-heading text-3xl text-white leading-snug drop-shadow-lg">
-              합격 자소서 39건 기반
-              <br />
               AI가 당신의 이야기를 완성합니다
             </p>
           </div>

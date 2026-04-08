@@ -24,7 +24,13 @@ import {
 } from "@/components/evaluation-card";
 import { EvaluationStream } from "@/components/evaluation-stream";
 import { api, getProjectStatus } from "@/lib/api";
-import type { Project, ProjectVersion, EvaluatorEvent } from "@/lib/api";
+import type {
+  Project,
+  ProjectVersion,
+  EvaluatorEvent,
+  UsageSummary,
+} from "@/lib/api";
+import { toast } from "sonner";
 import { AiLoader } from "@/components/ui/ai-loader";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 
@@ -157,6 +163,7 @@ export default function ProjectPage({
   const router = useRouter();
 
   const [project, setProject] = useState<Project | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeStep, setActiveStep] = useState(1);
   const [genStep, setGenStep] = useState<GenStep>("idle");
@@ -213,10 +220,12 @@ export default function ProjectPage({
   useEffect(() => {
     const load = async () => {
       try {
-        const [proj, resumeList] = await Promise.all([
+        const [proj, resumeList, usageData] = await Promise.all([
           api.getProject(Number(id)),
           api.listResumes(),
+          api.getUsage().catch(() => null),
         ]);
+        setUsage(usageData);
         setProject(proj);
         setResumes(resumeList);
 
@@ -260,25 +269,7 @@ export default function ProjectPage({
           setActiveStep(1);
         }
 
-        // company_id 없거나 companies 데이터가 비어있으면 자동 회사 조사
-        const hasCompanyData =
-          proj.companies &&
-          (proj.companies.mission ||
-            proj.companies.vision ||
-            proj.companies.products_services ||
-            proj.companies.company_size ||
-            proj.companies.employee_count);
-        if (!proj.company_id || !hasCompanyData) {
-          setResearchingCompany(true);
-          try {
-            const researched = await api.researchCompany(Number(id));
-            setProject(researched);
-          } catch {
-            // 조사 실패해도 진행 가능
-          } finally {
-            setResearchingCompany(false);
-          }
-        }
+        // 자동 회사 조사는 사용자가 버튼을 클릭할 때만 수행
       } catch {
         router.push("/");
       } finally {
@@ -326,6 +317,19 @@ export default function ProjectPage({
 
   const handleGenerate = async () => {
     if (!project) return;
+    if (
+      usage &&
+      usage.limits.generations > 0 &&
+      usage.usage.generations >= usage.limits.generations
+    ) {
+      toast.error("자소서 생성 한도에 도달했습니다.", {
+        action: {
+          label: "플랜 업그레이드",
+          onClick: () => router.push("/pricing"),
+        },
+      });
+      return;
+    }
     setError("");
     setGenStep("generating");
     setActiveStep(4);
@@ -385,18 +389,46 @@ export default function ProjectPage({
       });
       setVersions((prev) => [...prev, version]);
       setSelectedVersionId(version.id);
+      api
+        .getUsage()
+        .then(setUsage)
+        .catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : "API error");
-      setGenStep("idle");
-      setActiveStep(3);
+      const msg = e instanceof Error ? e.message : "API error";
+      if (msg.startsWith("PLAN_LIMIT|")) {
+        toast.error(msg.split("|")[1], {
+          action: {
+            label: "플랜 업그레이드",
+            onClick: () => router.push("/pricing"),
+          },
+        });
+        setGenStep("idle");
+        setActiveStep(3);
+      } else {
+        setError(msg);
+        setGenStep("idle");
+        setActiveStep(3);
+      }
     }
   };
 
   const MAX_REGENERATIONS = 5;
+  const regenLimitReached =
+    usage !== null &&
+    usage.limits.regenerations > 0 &&
+    usage.usage.regenerations >= usage.limits.regenerations;
 
   const handleRegenerate = async () => {
     if (!project || !evalResult) return;
-    if (versions.length >= MAX_REGENERATIONS) return;
+    if (regenLimitReached) {
+      toast.error("재생성 한도에 도달했습니다.", {
+        action: {
+          label: "플랜 업그레이드",
+          onClick: () => router.push("/pricing"),
+        },
+      });
+      return;
+    }
     setGenStep("generating");
     setError("");
 
@@ -447,12 +479,28 @@ export default function ProjectPage({
         char_limit: charLimit ? parseInt(charLimit) : undefined,
         resume_id: selectedResumeId ?? undefined,
         job_analysis: project.job_analysis,
+        is_regeneration: true,
       });
       setVersions((prev) => [...prev, version]);
       setSelectedVersionId(version.id);
+      api
+        .getUsage()
+        .then(setUsage)
+        .catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : "API error");
-      setGenStep("done");
+      const msg = e instanceof Error ? e.message : "API error";
+      if (msg.startsWith("PLAN_LIMIT|")) {
+        toast.error(msg.split("|")[1], {
+          action: {
+            label: "플랜 업그레이드",
+            onClick: () => router.push("/pricing"),
+          },
+        });
+        setGenStep("done");
+      } else {
+        setError(msg);
+        setGenStep("done");
+      }
     }
   };
 
@@ -612,7 +660,7 @@ export default function ProjectPage({
                   <div className="grid grid-cols-2 gap-5 items-stretch">
                     {/* Analysis summary */}
                     {project.job_analysis && (
-                      <div className="rounded-lg border border-border bg-card p-4 space-y-3 h-full">
+                      <div className="rounded-lg border border-border bg-card p-4 space-y-3 max-h-[520px] overflow-y-auto">
                         <div className="flex items-center justify-between mb-1">
                           <p className="text-xs font-medium text-muted-foreground">
                             채용 공고 요약
@@ -877,10 +925,37 @@ export default function ProjectPage({
                         </div>
                       )}
                       {!researchingCompany && (
-                        <div className="rounded-lg border border-border bg-card p-4 space-y-3 h-full flex flex-col">
-                          <p className="text-xs font-medium text-muted-foreground">
-                            회사 정보
-                          </p>
+                        <div className="rounded-lg border border-border bg-card p-4 space-y-3 max-h-[520px] overflow-y-auto flex flex-col">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              회사 정보
+                            </p>
+                            {usage && usage.plan !== "free" ? (
+                              <button
+                                onClick={async () => {
+                                  setResearchingCompany(true);
+                                  try {
+                                    const researched =
+                                      await api.researchCompany(project.id);
+                                    setProject(researched);
+                                  } catch {
+                                    toast.error(
+                                      "회사 정보 조사에 실패했습니다.",
+                                    );
+                                  } finally {
+                                    setResearchingCompany(false);
+                                  }
+                                }}
+                                className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                              >
+                                자동 검색
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground/50 bg-muted/40 rounded px-1.5 py-0.5">
+                                Free — 직접 입력
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
                             미션·비전·주요 서비스를 상세히 입력할수록
                             <br />
@@ -1125,7 +1200,7 @@ export default function ProjectPage({
                     </Button>
                     <Button
                       onClick={() => setActiveStep(2)}
-                      disabled={!isStepComplete(1)}
+                      disabled={!isStepComplete(1) || researchingCompany}
                     >
                       다음
                     </Button>
@@ -1507,21 +1582,19 @@ export default function ProjectPage({
                                   variant="outline"
                                   size="sm"
                                   onClick={handleRegenerate}
-                                  disabled={
-                                    versions.length >= MAX_REGENERATIONS ||
-                                    isLoading
-                                  }
+                                  disabled={regenLimitReached || isLoading}
                                   title={
-                                    versions.length >= MAX_REGENERATIONS
-                                      ? "재생성은 최대 5회까지 가능합니다"
+                                    regenLimitReached
+                                      ? "이번 달 재생성 횟수를 모두 사용했습니다"
                                       : undefined
                                   }
                                   className="flex flex-col items-end leading-tight h-auto py-2"
                                 >
                                   <span>피드백 반영 재생성</span>
-                                  {versions.length > 0 && (
+                                  {usage && usage.limits.regenerations > 0 && (
                                     <span className="text-xs text-muted-foreground">
-                                      ({versions.length}/5)
+                                      ({usage.usage.regenerations}/
+                                      {usage.limits.regenerations})
                                     </span>
                                   )}
                                 </Button>

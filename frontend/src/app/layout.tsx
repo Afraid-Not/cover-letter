@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
 import { Analytics } from "@vercel/analytics/next";
+import { Toaster } from "sonner";
 
 const dmSans = DM_Sans({
   variable: "--font-sans",
@@ -45,6 +46,7 @@ export default function RootLayout({
           <AppShell>{children}</AppShell>
         </AuthProvider>
         <Analytics />
+        <Toaster position="top-center" richColors />
       </body>
     </html>
   );

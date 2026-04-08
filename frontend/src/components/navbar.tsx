@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { api } from "@/lib/api";
+import type { UsageSummary } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/", label: "자소서 작성" },
@@ -16,6 +18,7 @@ export const Navbar = () => {
   const { signOut, session } = useAuth();
   const [hasResume, setHasResume] = useState<boolean | null>(null);
   const [tooltipDismissed, setTooltipDismissed] = useState(false);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const resumeLinkRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
@@ -28,6 +31,10 @@ export const Navbar = () => {
       .catch(() => {
         setHasResume(true);
       });
+    api
+      .getUsage()
+      .then(setUsage)
+      .catch(() => {});
   }, [session]);
 
   const showTooltip = hasResume === false && !tooltipDismissed;
@@ -35,15 +42,20 @@ export const Navbar = () => {
   return (
     <>
       <header className="fixed top-0 left-0 right-0 z-40 px-6 pt-4 pb-0 bg-background/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto flex justify-between items-center pb-4">
+        <div className="max-w-7xl mx-auto flex items-center pb-4 relative">
           <Link href="/" className="flex items-center">
-            <span className="text-base font-semibold tracking-widest font-heading text-primary">
-              AURA
-            </span>
+            <Image
+              src="/logo.png"
+              alt="AURA"
+              width={64}
+              height={22}
+              style={{ width: 64, height: "auto" }}
+              priority
+            />
           </Link>
 
-          {/* Nav links — centered */}
-          <nav className="hidden md:flex items-center space-x-8">
+          {/* Nav links — absolutely centered */}
+          <nav className="hidden md:flex items-center space-x-8 absolute left-1/2 -translate-x-1/2">
             {NAV_ITEMS.map((item) => {
               const isResumes = item.href === "/resumes";
               const isActive =
@@ -67,30 +79,34 @@ export const Navbar = () => {
             })}
           </nav>
 
-          {/* Right — legal links & logout */}
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2">
-              <Link
-                href="/terms"
-                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                이용약관
-              </Link>
-              <span className="text-[11px] text-border">|</span>
-              <Link
-                href="/privacy"
-                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                개인정보처리방침
-              </Link>
-              <span className="text-[11px] text-border">|</span>
-              <button
-                onClick={signOut}
-                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                로그아웃
-              </button>
-            </div>
+          {/* Right — plan + mypage + upgrade */}
+          <div className="flex items-center gap-2 ml-auto">
+            {/* Current plan badge */}
+            {usage && (
+              <>
+                <span className="text-[11px] font-medium text-muted-foreground px-2.5 py-1 rounded-full bg-muted border border-border">
+                  {usage.plan === "pro"
+                    ? "Pro 플랜"
+                    : usage.plan === "enterprise"
+                      ? "Enterprise 플랜"
+                      : "Free 플랜"}
+                </span>
+                <span className="text-[11px] text-border">|</span>
+              </>
+            )}
+            <Link
+              href="/mypage"
+              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              MyPage
+            </Link>
+            <span className="text-[11px] text-border">|</span>
+            <Link
+              href="/pricing"
+              className="text-[11px] font-medium text-primary border border-primary/40 hover:bg-primary/10 transition-colors px-2.5 py-1 rounded-full"
+            >
+              플랜 업그레이드
+            </Link>
           </div>
         </div>
         <div className="nav-divider" />

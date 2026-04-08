@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion, type Variants } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import type { UsageSummary } from "@/lib/api";
 import { AiLoader } from "@/components/ui/ai-loader";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { toast } from "sonner";
 
 interface Resume {
   id: number;
@@ -17,7 +20,10 @@ interface Resume {
 }
 
 export default function ResumesPage() {
+  const router = useRouter();
   const [resumes, setResumes] = useState<Resume[]>([]);
+  const [resumesLoaded, setResumesLoaded] = useState(false);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [newResumeText, setNewResumeText] = useState("");
   const [newResumeName, setNewResumeName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -32,15 +38,34 @@ export default function ResumesPage() {
   const loadResumes = () => {
     api
       .listResumes()
-      .then(setResumes)
-      .catch(() => {});
+      .then((data) => {
+        setResumes(data);
+        setResumesLoaded(true);
+      })
+      .catch(() => setResumesLoaded(true));
   };
 
   useEffect(() => {
     loadResumes();
+    api
+      .getUsage()
+      .then(setUsage)
+      .catch(() => {});
   }, []);
 
   const handleAdd = async () => {
+    // 이력서 한도 체크
+    if (
+      usage &&
+      usage.limits.resumes > 0 &&
+      usage.usage.resumes >= usage.limits.resumes
+    ) {
+      toast.error("이력서 등록 한도에 도달했습니다.", {
+        description: "플랜을 업그레이드하여 더 많은 이력서를 등록하세요.",
+        action: { label: "업그레이드", onClick: () => router.push("/pricing") },
+      });
+      return;
+    }
     setLoading(true);
     try {
       if (inputMode === "file" && selectedFile) {
@@ -52,6 +77,10 @@ export default function ResumesPage() {
       }
       setNewResumeName("");
       loadResumes();
+      api
+        .getUsage()
+        .then(setUsage)
+        .catch(() => {});
     } catch {
       // handle error
     } finally {
@@ -64,6 +93,10 @@ export default function ResumesPage() {
     try {
       await api.deleteResume(id);
       loadResumes();
+      api
+        .getUsage()
+        .then(setUsage)
+        .catch(() => {});
     } catch {
       // handle error
     }
@@ -72,6 +105,10 @@ export default function ResumesPage() {
   const canSubmit =
     (inputMode === "file" && selectedFile) ||
     (inputMode === "text" && newResumeText);
+
+  const resumeLimit = usage?.limits.resumes ?? -1;
+  const resumeCount = usage?.usage.resumes ?? 0;
+  const atResumeLimit = resumeLimit > 0 && resumeCount >= resumeLimit;
 
   const resumeItemVariants: Variants = {
     hidden: { opacity: 0, y: 16 },
@@ -100,9 +137,11 @@ export default function ResumesPage() {
           <Card className="border-border shadow-sm">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-xl font-semibold">
-                  새 이력서 등록
-                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-xl font-semibold">
+                    새 이력서 등록
+                  </CardTitle>
+                </div>
                 <div className="flex gap-1">
                   <Button
                     variant={inputMode === "file" ? "default" : "outline"}
@@ -200,9 +239,9 @@ export default function ResumesPage() {
 
           {/* 저장된 이력서 목록 */}
           <div className="space-y-3 min-w-0">
-            {resumes.length === 0 ? (
-              <Card className="border-border shadow-sm max-w-xs">
-                <CardContent className="pt-6 text-center text-sm text-muted-foreground">
+            {!resumesLoaded ? null : resumes.length === 0 ? (
+              <Card className="border-border shadow-sm self-start">
+                <CardContent className="py-4 text-sm text-muted-foreground text-center">
                   등록된 이력서가 없습니다
                 </CardContent>
               </Card>
