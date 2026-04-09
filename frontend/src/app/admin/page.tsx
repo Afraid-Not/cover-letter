@@ -11,6 +11,8 @@ import {
   type AdminGeneration,
   type AdminResume,
   type AdminCoupon,
+  type SupportTicket,
+  type SupportReply,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -159,6 +161,7 @@ export default function AdminPage() {
   const [resumes, setResumes] = useState<AdminResume[]>([]);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
   const [fetching, setFetching] = useState(true);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [couponCreating, setCouponCreating] = useState(false);
@@ -176,13 +179,14 @@ export default function AdminPage() {
   const fetchAll = useCallback(async () => {
     setFetching(true);
     try {
-      const [s, u, g, rv, cfg, cp] = await Promise.all([
+      const [s, u, g, rv, cfg, cp, sp] = await Promise.all([
         adminApi.getStats(),
         adminApi.listUsers(),
         adminApi.listGenerations(),
         adminApi.listResumes(),
         adminApi.getSettings(),
         adminApi.listCoupons(),
+        adminApi.listSupport(),
       ]);
       setStats(s);
       setUsers(u);
@@ -190,6 +194,7 @@ export default function AdminPage() {
       setResumes(rv);
       setSettings(cfg);
       setCoupons(cp);
+      setSupportTickets(sp);
     } catch (e) {
       console.error(e);
     } finally {
@@ -358,6 +363,10 @@ export default function AdminPage() {
             </TabsTrigger>
             <TabsTrigger value="coupons" className="text-xs">
               쿠폰 관리 ({coupons.length})
+            </TabsTrigger>
+            <TabsTrigger value="support" className="text-xs">
+              고객센터 (
+              {supportTickets.filter((t) => t.status === "open").length})
             </TabsTrigger>
           </TabsList>
 
@@ -797,8 +806,254 @@ export default function AdminPage() {
               </Card>
             </div>
           </TabsContent>
+
+          {/* 고객센터 탭 */}
+          <TabsContent value="support">
+            <Card className="bg-card border-border">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          #
+                        </th>
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          카테고리
+                        </th>
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          이메일
+                        </th>
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          제목
+                        </th>
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          내용
+                        </th>
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          상태
+                        </th>
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          접수일
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {supportTickets.map((t) => (
+                        <SupportRow
+                          key={t.id}
+                          ticket={t}
+                          onUpdate={(updated) =>
+                            setSupportTickets((prev) =>
+                              prev.map((x) =>
+                                x.id === updated.id ? updated : x,
+                              ),
+                            )
+                          }
+                        />
+                      ))}
+                      {supportTickets.length === 0 && !fetching && (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="px-4 py-8 text-center text-xs text-muted-foreground"
+                          >
+                            접수된 문의 없음
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
     </div>
   );
 }
+
+// ── 고객센터 행 컴포넌트 ──
+const CATEGORY_LABEL: Record<string, string> = {
+  complaint: "이용 불편",
+  suggestion: "제안",
+  general: "일반 요청",
+};
+
+const STATUS_OPTIONS = [
+  { value: "open", label: "미처리" },
+  { value: "in_progress", label: "처리중" },
+  { value: "closed", label: "완료" },
+] as const;
+
+const SupportRow = ({
+  ticket,
+  onUpdate,
+}: {
+  ticket: SupportTicket;
+  onUpdate: (t: SupportTicket) => void;
+}) => {
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [replies, setReplies] = useState<SupportReply[]>([]);
+  const [repliesLoaded, setRepliesLoaded] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+
+  const handleExpand = async () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !repliesLoaded) {
+      try {
+        const detail = await adminApi.getSupport(ticket.id);
+        setReplies(detail.replies ?? []);
+      } catch {
+        setReplies([]);
+      } finally {
+        setRepliesLoaded(true);
+      }
+    }
+  };
+
+  const handleStatusChange = async (
+    e: React.ChangeEvent<HTMLSelectElement>,
+  ) => {
+    const status = e.target.value as SupportTicket["status"];
+    setSaving(true);
+    try {
+      await adminApi.updateSupport(ticket.id, { status });
+      onUpdate({ ...ticket, status });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSendReply = async () => {
+    if (!replyText.trim()) return;
+    setSendingReply(true);
+    setReplyError(null);
+    try {
+      const newReply = await adminApi.replySupport(ticket.id, replyText.trim());
+      setReplies((prev) => [...prev, newReply]);
+      setReplyText("");
+      // open → in_progress 자동 반영
+      if (ticket.status === "open") {
+        onUpdate({ ...ticket, status: "in_progress" });
+      }
+    } catch (e) {
+      setReplyError((e as Error).message);
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
+  const statusColor: Record<string, string> = {
+    open: "bg-amber-900/50 text-white",
+    in_progress: "bg-sky-900/50 text-white",
+    closed: "bg-zinc-700 text-white",
+  };
+
+  return (
+    <>
+      <tr
+        className="border-b border-border/50 hover:bg-zinc-800/30 transition-colors cursor-pointer"
+        onClick={handleExpand}
+      >
+        <td className="px-4 py-3 text-xs text-muted-foreground">{ticket.id}</td>
+        <td className="px-4 py-3">
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-black text-white">
+            {CATEGORY_LABEL[ticket.category] ?? ticket.category}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-xs text-muted-foreground max-w-[160px] truncate">
+          {ticket.email ?? "-"}
+        </td>
+        <td className="px-4 py-3 text-xs text-foreground max-w-[200px] truncate">
+          {ticket.title}
+        </td>
+        <td className="px-4 py-3 text-xs text-muted-foreground max-w-[260px] truncate">
+          {ticket.content}
+        </td>
+        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+          <select
+            value={ticket.status}
+            onChange={handleStatusChange}
+            disabled={saving}
+            className="text-xs px-2 py-1 rounded bg-zinc-800 border border-zinc-600 text-zinc-50 focus:outline-none focus:border-violet-500 disabled:opacity-50"
+          >
+            {STATUS_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value} className="bg-zinc-800">
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td className="px-4 py-3 text-xs text-muted-foreground">
+          {new Date(ticket.created_at).toLocaleDateString("ko-KR")}
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-border/50">
+          <td colSpan={7} className="px-6 py-5 space-y-4 bg-background">
+            {/* 원본 문의 */}
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium text-black">원본 문의</p>
+              <p className="text-xs text-black whitespace-pre-wrap leading-relaxed bg-background rounded-lg px-4 py-3 border border-border">
+                {ticket.content}
+              </p>
+            </div>
+
+            {/* 답변 스레드 */}
+            {replies.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-medium text-black">답변 내역</p>
+                {replies.map((r) => (
+                  <div
+                    key={r.id}
+                    className="bg-background border border-border rounded-lg px-4 py-3 space-y-1"
+                  >
+                    <p className="text-[11px] text-black font-medium">
+                      관리자 답변
+                    </p>
+                    <p className="text-xs text-black whitespace-pre-wrap leading-relaxed">
+                      {r.content}
+                    </p>
+                    <p className="text-[11px] text-zinc-500">
+                      {new Date(r.created_at).toLocaleString("ko-KR")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 답변 입력 */}
+            <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+              <p className="text-[11px] font-medium text-black">답변 작성</p>
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="사용자에게 보낼 답변을 입력하세요..."
+                rows={4}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-black placeholder:text-muted-foreground focus:outline-none focus:border-violet-500 resize-none"
+              />
+              {replyError && (
+                <p className="text-[11px] text-red-400">{replyError}</p>
+              )}
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSendReply}
+                  disabled={sendingReply || !replyText.trim()}
+                  className="px-4 py-1.5 text-xs font-medium rounded bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {sendingReply ? "전송 중..." : "답변 전송"}
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+};
