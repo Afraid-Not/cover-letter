@@ -593,6 +593,62 @@ export interface AdminCoupon {
   used_at: string | null;
 }
 
+export interface SupportReply {
+  id: number;
+  ticket_id: number;
+  sender_type: "admin" | "user";
+  content: string;
+  created_at: string;
+}
+
+export interface SupportTicket {
+  id: number;
+  user_id: string | null;
+  email: string | null;
+  category: "complaint" | "suggestion" | "general";
+  title: string;
+  content: string;
+  status: "open" | "in_progress" | "closed";
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string;
+  replies?: SupportReply[];
+}
+
+export const supportApi = {
+  submit: async (data: {
+    category: string;
+    title: string;
+    content: string;
+  }): Promise<SupportTicket> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/support`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || "문의 등록 실패");
+    }
+    return r.json();
+  },
+
+  listMy: async (): Promise<SupportTicket[]> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/support/my`, { headers });
+    if (!r.ok) throw new Error("문의 목록 조회 실패");
+    return r.json();
+  },
+
+  getOne: async (ticketId: number): Promise<SupportTicket> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/support/${ticketId}`, { headers });
+    if (!r.ok) throw new Error("문의 조회 실패");
+    return r.json();
+  },
+};
+
 export const adminApi = {
   getStats: async (): Promise<AdminStats> => {
     const headers = await getAuthHeaders();
@@ -711,6 +767,52 @@ export const adminApi = {
     if (!r.ok) {
       const err = await r.json().catch(() => ({ detail: r.statusText }));
       throw new Error(err.detail || "쿠폰 생성 실패");
+    }
+    return r.json();
+  },
+
+  getSupport: async (ticketId: number): Promise<SupportTicket> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/support/${ticketId}`, {
+      headers,
+    });
+    if (!r.ok) throw new Error("문의 조회 실패");
+    return r.json();
+  },
+
+  listSupport: async (): Promise<SupportTicket[]> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/support`, { headers });
+    if (!r.ok) throw new Error("문의 목록 조회 실패");
+    return r.json();
+  },
+
+  updateSupport: async (
+    ticketId: number,
+    data: { status?: SupportTicket["status"]; admin_note?: string },
+  ): Promise<void> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/support/${ticketId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error("문의 업데이트 실패");
+  },
+
+  replySupport: async (
+    ticketId: number,
+    content: string,
+  ): Promise<SupportReply> => {
+    const headers = await getAuthHeaders();
+    const r = await fetch(`${API_BASE}/api/admin/support/${ticketId}/reply`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ content }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || "답변 등록 실패");
     }
     return r.json();
   },

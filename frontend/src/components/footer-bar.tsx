@@ -35,12 +35,20 @@ export const FooterBar = () => {
             </>
           )}
         </div>
-        <button
-          onClick={signOut}
-          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-        >
-          로그아웃
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/support"
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            고객센터
+          </Link>
+          <button
+            onClick={signOut}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            로그아웃
+          </button>
+        </div>
       </div>
     </footer>
   );

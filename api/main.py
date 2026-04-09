@@ -75,6 +75,11 @@ class SaveGenerationRequest(BaseModel):
 class CreateProjectRequest(BaseModel):
     job_posting: str
 
+class SupportTicketRequest(BaseModel):
+    category: str  # complaint | suggestion | general
+    title: str
+    content: str
+
 class UpdateProjectRequest(BaseModel):
     resume_id: int | None = None
     question: str | None = None
@@ -1698,3 +1703,182 @@ async def charge_recurring(request: Request):
                 failed += 1
 
     return {"ok": True, "charged": charged, "failed": failed}
+
+
+# ── 고객센터 ──
+
+@app.post("/api/support")
+async def submit_support_ticket(body: SupportTicketRequest, request: Request):
+    """고객센터 문의 등록"""
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="인증 실패")
+
+    if body.category not in ("complaint", "suggestion", "general"):
+        raise HTTPException(status_code=422, detail="유효하지 않은 카테고리")
+    if not body.title.strip() or not body.content.strip():
+        raise HTTPException(status_code=422, detail="제목과 내용을 입력해주세요")
+
+    # 이메일 조회 (service_role)
+    sb_service = _get_sb()
+    try:
+        auth_res = await _run(
+            lambda: sb_service.auth.admin.get_user_by_id(user_id)
+        )
+        email = auth_res.user.email if auth_res and auth_res.user else None
+    except Exception:
+        email = None
+
+    result = await _run(
+        lambda: sb_service.table("support_tickets").insert({
+            "user_id": user_id,
+            "email": email,
+            "category": body.category,
+            "title": body.title.strip(),
+            "content": body.content.strip(),
+        }).execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=500, detail="문의 등록 실패")
+    return result.data[0]
+
+
+@app.get("/api/admin/support")
+async def admin_list_support(request: Request):
+    """관리자: 고객센터 문의 목록"""
+    token = _extract_token(request)
+    await _check_admin(token)
+    sb = _get_sb()
+    result = await _run(
+        lambda: sb.table("support_tickets")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(200)
+        .execute()
+    )
+    return result.data or []
+
+
+@app.patch("/api/admin/support/{ticket_id}")
+async def admin_update_support(ticket_id: int, body: dict, request: Request):
+    """관리자: 문의 상태/메모 업데이트"""
+    token = _extract_token(request)
+    await _check_admin(token)
+    sb = _get_sb()
+    update_data = {}
+    if "status" in body:
+        if body["status"] not in ("open", "in_progress", "closed"):
+            raise HTTPException(status_code=422, detail="유효하지 않은 상태값")
+        update_data["status"] = body["status"]
+    if "admin_note" in body:
+        update_data["admin_note"] = body["admin_note"]
+    if not update_data:
+        raise HTTPException(status_code=422, detail="변경 내용이 없습니다")
+    result = await _run(
+        lambda: sb.table("support_tickets")
+        .update(update_data)
+        .eq("id", ticket_id)
+        .execute()
+    )
+    return result.data[0] if result.data else {"ok": True}
+
+
+@app.get("/api/admin/support/{ticket_id}")
+async def admin_get_support(ticket_id: int, request: Request):
+    """관리자: 문의 상세 + 답변 목록"""
+    token = _extract_token(request)
+    await _check_admin(token)
+    sb = _get_sb()
+    ticket, replies = await asyncio.gather(
+        _run(lambda: sb.table("support_tickets").select("*").eq("id", ticket_id).single().execute()),
+        _run(lambda: sb.table("support_replies").select("*").eq("ticket_id", ticket_id).order("created_at", desc=False).execute()),
+    )
+    if not ticket.data:
+        raise HTTPException(status_code=404, detail="문의를 찾을 수 없습니다")
+    return {**ticket.data, "replies": replies.data or []}
+
+
+@app.post("/api/admin/support/{ticket_id}/reply")
+async def admin_reply_support(ticket_id: int, body: dict, request: Request):
+    """관리자: 문의 답변 등록"""
+    token = _extract_token(request)
+    await _check_admin(token)
+    content = (body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="답변 내용을 입력해주세요")
+    sb = _get_sb()
+    # 티켓 존재 확인
+    ticket = await _run(
+        lambda: sb.table("support_tickets").select("id").eq("id", ticket_id).single().execute()
+    )
+    if not ticket.data:
+        raise HTTPException(status_code=404, detail="문의를 찾을 수 없습니다")
+    result = await _run(
+        lambda: sb.table("support_replies").insert({
+            "ticket_id": ticket_id,
+            "sender_type": "admin",
+            "content": content,
+        }).execute()
+    )
+    # 상태를 in_progress로 자동 전환 (현재 open인 경우만)
+    await _run(
+        lambda: sb.table("support_tickets")
+        .update({"status": "in_progress"})
+        .eq("id", ticket_id)
+        .eq("status", "open")
+        .execute()
+    )
+    return result.data[0] if result.data else {"ok": True}
+
+
+@app.get("/api/support/my")
+async def my_support_tickets(request: Request):
+    """사용자: 내 문의 목록"""
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="인증 실패")
+    sb = _get_sb()
+    result = await _run(
+        lambda: sb.table("support_tickets")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
+@app.get("/api/support/{ticket_id}")
+async def get_support_ticket(ticket_id: int, request: Request):
+    """사용자: 문의 상세 + 답변 목록"""
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다")
+    user_id = _get_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="인증 실패")
+    sb = _get_sb()
+    ticket = await _run(
+        lambda: sb.table("support_tickets")
+        .select("*")
+        .eq("id", ticket_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not ticket.data:
+        raise HTTPException(status_code=404, detail="문의를 찾을 수 없습니다")
+    replies = await _run(
+        lambda: sb.table("support_replies")
+        .select("*")
+        .eq("ticket_id", ticket_id)
+        .order("created_at")
+        .execute()
+    )
+    return {**ticket.data, "replies": replies.data or []}
