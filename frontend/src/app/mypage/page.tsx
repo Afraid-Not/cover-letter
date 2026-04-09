@@ -387,7 +387,10 @@ const MyPage = () => {
         >
           {/* ── Header ── */}
           <motion.div variants={item}>
-            <h1 className="font-heading text-2xl font-bold text-foreground">
+            <h1
+              className="text-3xl font-semibold text-foreground"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
               Dashboard
             </h1>
           </motion.div>

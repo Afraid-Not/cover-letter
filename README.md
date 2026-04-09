@@ -31,17 +31,17 @@
 
 ## 기술 스택
 
-| 구분        | 기술                                                          |
-| ----------- | ------------------------------------------------------------- |
-| 백엔드      | Python 3.11, FastAPI (완전 비동기), AsyncOpenAI (GPT-4o)      |
-| 프론트엔드  | Next.js 16, shadcn/ui, Tailwind CSS, Framer Motion            |
-| DB          | Supabase (pgvector, Auth, RLS)                                |
-| 임베딩      | OpenAI text-embedding-3-small                                 |
-| 이미지 파싱 | Anthropic AsyncAnthropic (Claude Haiku 4.5 Vision)            |
-| PDF 파싱    | PyMuPDF                                                       |
-| 회사 조사   | AsyncOpenAI + AsyncTavilyClient + httpx (DART 공시 API)       |
-| 결제        | Toss Payments (빌링키 정기 구독)                              |
-| 인증        | Supabase Auth (이메일 + Google OAuth)                         |
+| 구분        | 기술                                                     |
+| ----------- | -------------------------------------------------------- |
+| 백엔드      | Python 3.11, FastAPI (완전 비동기), AsyncOpenAI (GPT-4o) |
+| 프론트엔드  | Next.js 16, shadcn/ui, Tailwind CSS, Framer Motion       |
+| DB          | Supabase (pgvector, Auth, RLS)                           |
+| 임베딩      | OpenAI text-embedding-3-small                            |
+| 이미지 파싱 | Anthropic AsyncAnthropic (Claude Haiku 4.5 Vision)       |
+| PDF 파싱    | PyMuPDF                                                  |
+| 회사 조사   | AsyncOpenAI + AsyncTavilyClient + httpx (DART 공시 API)  |
+| 결제        | Toss Payments (빌링키 정기 구독)                         |
+| 인증        | Supabase Auth (이메일 + Google OAuth)                    |
 
 ## 아키텍처
 

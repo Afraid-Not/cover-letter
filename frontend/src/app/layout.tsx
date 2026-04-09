@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { DM_Sans, Instrument_Serif, Nanum_Myeongjo } from "next/font/google";
+import {
+  DM_Sans,
+  Instrument_Serif,
+  Nanum_Myeongjo,
+  Playfair_Display,
+} from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
@@ -26,6 +31,13 @@ const nanumMyeongjo = Nanum_Myeongjo({
   display: "swap",
 });
 
+const playfairDisplay = Playfair_Display({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL || "https://hapgyeok.com",
@@ -48,7 +60,7 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${dmSans.variable} ${instrumentSerif.variable} ${nanumMyeongjo.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${instrumentSerif.variable} ${nanumMyeongjo.variable} ${playfairDisplay.variable} h-full antialiased`}
     >
       <body className="min-h-full flex">
         <AuthProvider>
