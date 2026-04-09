@@ -42,6 +42,7 @@ export const FooterBar = () => {
           >
             고객센터
           </Link>
+          <span className="text-[11px] text-border">|</span>
           <button
             onClick={signOut}
             className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
