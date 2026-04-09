@@ -289,6 +289,7 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 ## 비동기 아키텍처
 
 ### 백엔드 (Python)
+
 - **OpenAI**: 모든 모듈에서 `AsyncOpenAI` 사용 (`embedder.py` 제외 — standalone 동기 스크립트)
 - **Tavily**: `AsyncTavilyClient` (`researcher.py`)
 - **DART API**: `httpx.AsyncClient` (`researcher.py`, `requests` 제거됨)
@@ -300,6 +301,7 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - **CLI**: `_sync(coro)` 래퍼 (`asyncio.run`) 로 async 함수를 동기 실행
 
 ### 프론트엔드 (TypeScript)
+
 - **API 에러 처리**: `_json` 헬퍼 — `r.ok` 검증 후 에러 시 throw, 성공 시 `r.json()` 반환; 자체 에러 처리 함수(generate, updateProject 등)는 미적용
 - **SSE 스트리밍**: `evaluateStream` — `res.ok` 검증 + `try/finally { reader.cancel() }` + `JSON.parse` try-catch + summary null 체크
 - **Auth Provider**: role 조회 useEffect에 `cancelled` 플래그 + `Promise.resolve()` 래핑 + `.catch()` fallback
