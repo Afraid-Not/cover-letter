@@ -44,11 +44,11 @@ cover-letter/
 │   └── cli.py                # Typer CLI (_sync() 래퍼로 async 함수 동기 실행)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
-│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /admin, /auth/callback, /payments/success, /payments/fail (※ /onboarding 삭제됨 → /signup?oauth=google으로 통합)
+│       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /support, /support/[id], /terms, /privacy, /admin, /auth/callback, /payments/success, /payments/fail (※ /onboarding 삭제됨 → /signup?oauth=google으로 통합)
 │       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
 │       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, card, dialog…
 │       ├── hooks/            # use-navigation-guard (작업 중 브라우저 이탈 차단)
-│       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD), supabase.ts
+│       └── lib/              # api.ts (FastAPI 호출 + 프로젝트 CRUD + adminApi + supportApi), supabase.ts
 ├── migration/                # Supabase DB 마이그레이션 SQL
 │   ├── 002_companies_table.sql        # companies 테이블 (회사 조사 캐시)
 │   ├── 003_match_companies_function.sql
@@ -60,7 +60,9 @@ cover-letter/
 │   ├── 009_coupons.sql                # coupons 테이블 + profiles.extra_generations 컬럼
 │   ├── 010_soft_delete_projects.sql   # generations.deleted_at 컬럼 (소프트 삭제)
 │   ├── 011_company_search_credits.sql # profiles.extra_company_searches + coupons.bonus_company_searches
-│   └── 012_birth_date.sql             # profiles.birth_date 컬럼 추가
+│   ├── 012_birth_date.sql             # profiles.birth_date 컬럼 추가
+│   ├── 013_support_tickets.sql        # support_tickets 테이블 (고객 문의, category/status/admin_note)
+│   └── 014_support_replies.sql        # support_replies 테이블 (관리자·유저 답변 스레드)
 ├── email-templates/          # Supabase Auth 이메일 템플릿 (가입 인증)
 ├── data/data.txt             # 합격 자소서 39건 원본
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
@@ -92,6 +94,8 @@ cover-letter/
 - `avatars` (Storage Bucket) — 프로필 사진 저장 (public read, 소유자만 write); 폴더 구조: `{user_id}/{filename}`
 - `subscriptions` — 구독 결제 정보 (user_id, plan, billing_key, customer_key, status, amount, last_billed_at, next_billing_date)
 - `coupons` — 쿠폰 (code PK, expires_at, bonus_generations, bonus_regenerations, bonus_company_searches, used_by, used_at); RLS로 직접 접근 차단, API만 사용
+- `support_tickets` — 고객 문의 (id, user_id + RLS, category: complaint/suggestion/general, title, content, status: open/in_progress/closed, admin_note, created_at, updated_at)
+- `support_replies` — 고객센터 답변 스레드 (id, ticket_id FK, sender_type: admin/user, content, created_at); 본인 문의의 답변만 조회 가능
 
 ## 주요 설계 결정
 
@@ -160,12 +164,13 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 
 - **접근**: `profiles.role = 'admin'`인 유저만 `/admin` 페이지 진입 가능 (`auth-provider`에서 `role` 노출)
 - **관리자 대시보드** (`frontend/src/app/admin/page.tsx`):
-  - KPI 카드: 총 유저 수, 오늘/총 생성 수, 플랜 분포
-  - 유저 관리 탭: 플랜 드롭다운 변경, 추가 재생성 횟수·회사검색 크레딧 스피너 즉시 저장
+  - KPI 카드: 총 유저 수, 오늘/총 생성 수, 플랜 분포 (Recharts 파이 차트)
+  - 유저 관리 탭: 플랜 드롭다운 변경, 추가 재생성 횟수·회사검색 크레딧 인라인 즉시 저장
   - 생성 이력 탭: 최근 100건 조회
   - 자소서 등록 이력 탭: 최근 100건 조회
   - 플랜 구매 설정: `app_settings` 테이블의 `plan_{free|pro|enterprise}_enabled` 토글
   - **쿠폰 관리 탭**: 쿠폰 생성(생성횟수/재생성횟수/회사검색횟수 설정, 랜덤 코드 자동 생성, 7일 만료) + 쿠폰 목록(상태: 유효/만료/사용됨)
+  - **고객 문의 탭**: 문의 목록 + 인라인 답변 작성 + 상태 변경 (open→in_progress→closed); 답변 시 open 문의 자동으로 in_progress로 전환
 - **관리자 API** (`/api/admin/*`): `_check_admin()` 함수로 권한 검증
   - `GET /api/admin/stats` — KPI 통계
   - `GET /api/admin/users` — 전체 유저 목록 (Supabase Auth Admin API + profiles 조인)
@@ -178,6 +183,10 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
   - `PATCH /api/admin/users/{user_id}/extra-company-searches` — 추가 회사 검색 크레딧 설정
   - `GET /api/admin/coupons` — 쿠폰 목록 조회
   - `POST /api/admin/coupons` — 쿠폰 생성 (code, bonus_generations, bonus_regenerations, bonus_company_searches, 7일 만료)
+  - `GET /api/admin/support` — 전체 고객 문의 목록 (최신순)
+  - `GET /api/admin/support/{id}` — 문의 상세 + 답변 스레드
+  - `PATCH /api/admin/support/{id}` — 문의 상태(status)/관리자 노트(admin_note) 업데이트
+  - `POST /api/admin/support/{id}/reply` — 관리자 답변 등록
 - **퍼블릭 설정 API**: `GET /api/plan-settings` — 인증 없이 플랜 활성 여부 반환, pricing 페이지에서 사용
 - **`/api/usage` 개선**: `extra_regenerations`/`extra_generations`/`extra_company_searches`를 각 `limits`에 합산 반환 (무제한 플랜 제외), `extra_company_searches` 필드 별도 노출
 - **pricing 페이지 연동**: 페이지 진입 시 `/api/plan-settings` fetch → 비활성 플랜 카드 dimmed + 버튼 disabled
@@ -232,6 +241,7 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 - `use-navigation-guard` 훅으로 생성/평가 중 브라우저 이탈(새로고침·뒤로가기) 차단
 - 마이페이지(`/mypage`) → 사용량 지표(이력서/생성/재생성/플랜/회사검색 크레딧) + 프로필 수정 + 통합 활동 피드(`/api/activity`) + 쿠폰 등록 모달 + 회원 탈퇴 모달
 - 요금제 페이지(`/pricing`) → Free/Pro/Enterprise 비교 + 플랜 변경
+- 고객센터(`/support`) → 탭 2개: 새 문의(카테고리/제목/내용 입력) + 문의 내역(상태별 목록); `/support/[id]`에서 답변 스레드 조회
 - `/auth/callback` — Google OAuth 콜백 처리: 기존 유저 → `/`, 신규 유저 → `/signup?oauth=google` (프로필 존재 여부로 구분)
 
 ## 전체 API 엔드포인트
@@ -285,6 +295,13 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 | PATCH  | `/api/admin/users/{id}/extra-company-searches` | 관리자: 회사 검색 크레딧 설정                            |
 | GET    | `/api/admin/coupons`                           | 관리자: 쿠폰 목록 조회                                   |
 | POST   | `/api/admin/coupons`                           | 관리자: 쿠폰 생성 (7일 만료)                             |
+| POST   | `/api/support`                                 | 고객 문의 접수 (category, title, content)                |
+| GET    | `/api/support`                                 | 내 문의 목록 조회                                        |
+| GET    | `/api/support/{id}`                            | 문의 상세 + 답변 스레드 조회                             |
+| GET    | `/api/admin/support`                           | 관리자: 전체 문의 목록                                   |
+| GET    | `/api/admin/support/{id}`                      | 관리자: 문의 상세 + 답변 스레드                          |
+| PATCH  | `/api/admin/support/{id}`                      | 관리자: 문의 상태/노트 업데이트                          |
+| POST   | `/api/admin/support/{id}/reply`                | 관리자: 문의 답변 등록                                   |
 
 ## 비동기 아키텍처
 

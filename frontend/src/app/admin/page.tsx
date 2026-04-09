@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import {
@@ -169,6 +169,12 @@ export default function AdminPage() {
   const [couponBonusGen, setCouponBonusGen] = useState(5);
   const [couponBonusRegen, setCouponBonusRegen] = useState(25);
   const [couponBonusSearch, setCouponBonusSearch] = useState(0);
+
+  const userMap = useMemo(
+    () =>
+      new Map(users.map((u) => [u.user_id, { email: u.email, name: u.name }])),
+    [users],
+  );
 
   useEffect(() => {
     if (!loading && role !== "admin") {
@@ -486,6 +492,9 @@ export default function AdminPage() {
                           #
                         </th>
                         <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                          유저
+                        </th>
+                        <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
                           회사
                         </th>
                         <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
@@ -510,6 +519,17 @@ export default function AdminPage() {
                         >
                           <td className="px-4 py-3 text-xs text-muted-foreground">
                             {g.id}
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            <span className="text-foreground">
+                              {userMap.get(g.user_id)?.name || (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </span>
+                            <span className="block text-muted-foreground text-[10px] truncate max-w-[160px]">
+                              {userMap.get(g.user_id)?.email ||
+                                g.user_id.slice(0, 8) + "…"}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-xs text-foreground">
                             {(g.job_analysis as { company?: string })
@@ -545,7 +565,7 @@ export default function AdminPage() {
                       {generations.length === 0 && !fetching && (
                         <tr>
                           <td
-                            colSpan={6}
+                            colSpan={7}
                             className="px-4 py-8 text-center text-xs text-muted-foreground"
                           >
                             생성 이력 없음
@@ -571,7 +591,7 @@ export default function AdminPage() {
                           #
                         </th>
                         <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
-                          유저 ID
+                          유저
                         </th>
                         <th className="px-4 py-3 text-xs font-medium text-muted-foreground">
                           이력서 이름
@@ -590,8 +610,16 @@ export default function AdminPage() {
                           <td className="px-4 py-3 text-xs text-muted-foreground">
                             {rv.id}
                           </td>
-                          <td className="px-4 py-3 text-xs text-muted-foreground max-w-[200px] truncate">
-                            {rv.user_id}
+                          <td className="px-4 py-3 text-xs">
+                            <span className="text-foreground">
+                              {userMap.get(rv.user_id)?.name || (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </span>
+                            <span className="block text-muted-foreground text-[10px] truncate max-w-[180px]">
+                              {userMap.get(rv.user_id)?.email ||
+                                rv.user_id.slice(0, 8) + "…"}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-xs text-foreground">
                             {rv.name || (
