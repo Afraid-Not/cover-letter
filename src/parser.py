@@ -1,16 +1,17 @@
 """이력서 파싱 (텍스트/파일/PDF → 구조화 → Supabase 저장/조회)"""
 
+import asyncio
 import json
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 from supabase import create_client
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY"))
 
 PARSE_SYSTEM_PROMPT = """당신은 이력서 파싱 전문가입니다.
@@ -62,9 +63,9 @@ def _read_pdf(path: Path) -> str:
     return "\n".join(text_parts)
 
 
-def parse_resume(raw_text: str) -> dict:
+async def parse_resume(raw_text: str) -> dict:
     """LLM으로 이력서를 구조화된 데이터로 파싱한다."""
-    response = openai_client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": PARSE_SYSTEM_PROMPT},
@@ -76,65 +77,75 @@ def parse_resume(raw_text: str) -> dict:
     return json.loads(response.choices[0].message.content)
 
 
-def get_embedding(text: str) -> list[float]:
+async def get_embedding(text: str) -> list[float]:
     """텍스트를 임베딩 벡터로 변환한다."""
-    response = openai_client.embeddings.create(
+    response = await openai_client.embeddings.create(
         model="text-embedding-3-small",
         input=text[:8000],
     )
     return response.data[0].embedding
 
 
-def save_resume(name: str, raw_text: str, structured: dict, user_id: str | None = None) -> dict:
+async def save_resume(name: str, raw_text: str, structured: dict, user_id: str | None = None) -> dict:
     """이력서를 Supabase에 저장한다. 같은 이름이면 업데이트."""
     embed_text = _structured_to_text(structured)
-    embedding = get_embedding(embed_text)
+    embedding = await get_embedding(embed_text)
 
     query = supabase.table("resumes").select("id").eq("name", name)
     if user_id:
         query = query.eq("user_id", user_id)
-    existing = query.execute()
+    existing = await asyncio.to_thread(query.execute)
 
     if existing.data:
-        result = supabase.table("resumes").update({
-            "raw_text": raw_text,
-            "structured_data": structured,
-            "embedding": embedding,
-            "updated_at": "now()",
-        }).eq("id", existing.data[0]["id"]).execute()
+        result = await asyncio.to_thread(
+            supabase.table("resumes").update({
+                "raw_text": raw_text,
+                "structured_data": structured,
+                "embedding": embedding,
+                "updated_at": "now()",
+            }).eq("id", existing.data[0]["id"]).execute
+        )
     else:
         row = {"name": name, "raw_text": raw_text, "structured_data": structured, "embedding": embedding}
         if user_id:
             row["user_id"] = user_id
-        result = supabase.table("resumes").insert(row).execute()
+        result = await asyncio.to_thread(
+            supabase.table("resumes").insert(row).execute
+        )
 
     return result.data[0]
 
 
-def list_resumes(user_id: str | None = None) -> list[dict]:
+async def list_resumes(user_id: str | None = None) -> list[dict]:
     """저장된 이력서 목록을 조회한다."""
     query = supabase.table("resumes").select("id, name, created_at, updated_at")
     if user_id:
         query = query.eq("user_id", user_id)
-    result = query.order("updated_at", desc=True).execute()
+    result = await asyncio.to_thread(query.order("updated_at", desc=True).execute)
     return result.data
 
 
-def get_resume(resume_id: int) -> dict:
+async def get_resume(resume_id: int) -> dict:
     """저장된 이력서를 조회한다."""
-    result = supabase.table("resumes").select("*").eq("id", resume_id).single().execute()
+    result = await asyncio.to_thread(
+        supabase.table("resumes").select("*").eq("id", resume_id).single().execute
+    )
     return result.data
 
 
-def delete_resume(resume_id: int) -> bool:
+async def delete_resume(resume_id: int) -> bool:
     """이력서를 삭제한다."""
-    supabase.table("resumes").delete().eq("id", resume_id).execute()
+    await asyncio.to_thread(
+        supabase.table("resumes").delete().eq("id", resume_id).execute
+    )
     return True
 
 
-def get_resume_by_name(name: str) -> dict | None:
+async def get_resume_by_name(name: str) -> dict | None:
     """이름으로 저장된 이력서를 조회한다."""
-    result = supabase.table("resumes").select("*").eq("name", name).execute()
+    result = await asyncio.to_thread(
+        supabase.table("resumes").select("*").eq("name", name).execute
+    )
     return result.data[0] if result.data else None
 
 
@@ -164,13 +175,13 @@ def _structured_to_text(structured: dict) -> str:
     return "\n".join(parts)
 
 
-def process_resume(source: str, name: str | None = None, user_id: str | None = None) -> dict:
+async def process_resume(source: str, name: str | None = None, user_id: str | None = None) -> dict:
     """이력서 입력 → 파싱 → 저장 전체 파이프라인."""
     raw_text = read_input(source)
-    structured = parse_resume(raw_text)
+    structured = await parse_resume(raw_text)
 
     resume_name = name or structured.get("name", "unnamed")
-    saved = save_resume(resume_name, raw_text, structured, user_id=user_id)
+    saved = await save_resume(resume_name, raw_text, structured, user_id=user_id)
 
     return {
         "id": saved["id"],

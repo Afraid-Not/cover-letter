@@ -47,14 +47,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setRole(null);
       return;
     }
-    supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", session.user.id)
-      .single()
+    let cancelled = false;
+    Promise.resolve(
+      supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", session.user.id)
+        .single(),
+    )
       .then(({ data }) => {
-        setRole((data?.role as "user" | "admin") ?? "user");
+        if (!cancelled) {
+          setRole((data?.role as "user" | "admin") ?? "user");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRole("user");
       });
+    return () => {
+      cancelled = true;
+    };
   }, [session?.user?.id]);
 
   const signOut = async () => {

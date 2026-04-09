@@ -1,10 +1,17 @@
 """CLI 진입점 — 전체 파이프라인을 하나의 명령어로 연결"""
 
+import asyncio
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
+
+
+def _sync(coro):
+    """async 코루틴을 동기적으로 실행한다."""
+    return asyncio.run(coro)
 
 app = typer.Typer(help="합격 자소서 기반 RAG 자소서 생성 + LLM-as-a-Judge 평가 CLI")
 console = Console()
@@ -36,7 +43,7 @@ def generate(
     job_text = read_input(job_posting) if job_posting else ""
 
     console.print("\n[dim]채용공고 분석 중...[/]")
-    job_analysis = analyze_job_posting(job_text)
+    job_analysis = _sync(analyze_job_posting(job_text))
     console.print(f"  회사: [bold]{job_analysis.get('company', '?')}[/]")
     console.print(f"  직무: [bold]{job_analysis.get('position', '?')}[/]")
     console.print(f"  핵심 ���워드: {', '.join(job_analysis.get('keywords', []))}")
@@ -53,18 +60,18 @@ def generate(
     from src.analyzer import build_search_query
     search_query = build_search_query(job_analysis, question)
     console.print("\n[dim]합격 자소서 검색 중...[/]")
-    rag_results = search_similar(search_query, match_count=5)
+    rag_results = _sync(search_similar(search_query, match_count=5))
     console.print(f"  {len(rag_results)}건의 유사 합격 자소서 찾음")
 
     # 5. 자소서 생성
     console.print("\n[dim]자소서 생성 중...[/]")
-    answer = generate_answer(
+    answer = _sync(generate_answer(
         question=question,
         job_analysis=job_analysis,
         resume_structured=resume_data["structured"],
         rag_results=rag_results,
         char_limit=char_limit,
-    )
+    ))
 
     console.print(Panel(answer, title="[bold green]생성된 자소서[/]", border_style="green"))
     if char_limit:
@@ -79,14 +86,14 @@ def generate(
     if eval_result["overall_pass_probability"] < 70 or Confirm.ask("\n[bold yellow]재생성 하시겠습니까?[/]", default=False):
         feedback = aggregate_feedback(eval_result)
         console.print("\n[dim]피드백 반영하여 재생성 중...[/]")
-        improved = generate_answer(
+        improved = _sync(generate_answer(
             question=question,
             job_analysis=job_analysis,
             resume_structured=resume_data["structured"],
             rag_results=rag_results,
             char_limit=char_limit,
             feedback=feedback,
-        )
+        ))
         console.print(Panel(improved, title="[bold blue]개선된 자소서[/]", border_style="blue"))
         if char_limit:
             console.print(f"  글자수: {len(improved)}/{char_limit}")
@@ -108,7 +115,7 @@ def resumes():
     """저장된 이력서 목록을 조회합니다."""
     from src.parser import list_resumes
 
-    data = list_resumes()
+    data = _sync(list_resumes())
     if not data:
         console.print("[dim]저장된 이력서가 없습니다.[/]")
         return
@@ -133,7 +140,7 @@ def add_resume(
     from src.parser import process_resume
 
     console.print("[dim]이력서 파싱 중...[/]")
-    result = process_resume(source, name)
+    result = _sync(process_resume(source, name))
     console.print(f"  저장 완료: [bold]{result['name']}[/] (ID: {result['id']})")
 
 
@@ -164,7 +171,7 @@ def _get_resume_input() -> str:
     """이력서 입력 방식을 선택받는다."""
     from src.parser import list_resumes
 
-    saved = list_resumes()
+    saved = _sync(list_resumes())
     if saved:
         console.print("\n[bold cyan]저장된 이력서:[/]")
         for r in saved:
@@ -185,16 +192,16 @@ def _resolve_resume(source: str) -> dict:
 
     if source.startswith("__saved__"):
         resume_id = int(source.replace("__saved__", ""))
-        data = get_resume(resume_id)
+        data = _sync(get_resume(resume_id))
         return {"id": data["id"], "name": data["name"], "structured": data["structured_data"]}
 
     # 이름으로 찾기
-    existing = get_resume_by_name(source)
+    existing = _sync(get_resume_by_name(source))
     if existing:
         return {"id": existing["id"], "name": existing["name"], "structured": existing["structured_data"]}
 
     # 새 이력서
-    return process_resume(source)
+    return _sync(process_resume(source))
 
 
 if __name__ == "__main__":

@@ -4,11 +4,11 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 GENERATE_SYSTEM_PROMPT = """당신은 자소서 작성 전문가입니다.
 아래 정보를 바탕으로 자소서 답변을 작성하세요.
@@ -48,7 +48,7 @@ REGENERATE_SYSTEM_PROMPT = """당신은 자소서 개선 전문가입니다.
 - 참고 자소서에 나오는 다른 사람의 회사명, 프로젝트, 수치를 내 것처럼 쓰지 마세요."""
 
 
-def generate_answer(
+async def generate_answer(
     question: str,
     job_analysis: dict,
     resume_structured: dict,
@@ -91,7 +91,7 @@ def generate_answer(
                 ),
             })
 
-        response = openai_client.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
             temperature=0.3,
