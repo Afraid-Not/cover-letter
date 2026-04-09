@@ -26,7 +26,8 @@
 - **회원가입 3단계 위자드** — 1단계(이메일/비밀번호) → 2단계(이름/생년월일/전화번호/약관) → 3단계(커리어 정보); Google OAuth 신규 가입 시 `/signup?oauth=google`으로 리다이렉트하여 2단계부터 시작
 - **마이페이지** — 사용량 지표, 프로필 수정 (이름/희망직무/자기소개), 아바타 사진 업로드, 통합 활동 피드, 쿠폰 등록 모달, 회원 탈퇴
 - **요금제 페이지** — 플랜 비교 및 선택 UI; 관리자가 비활성화한 플랜은 버튼 자동 차단
-- **관리자 대시보드** — `/admin`; KPI 카드, 유저 관리 (플랜 변경·크레딧 부여), 생성/이력서 등록 이력, 플랜 구매 on/off 설정, 쿠폰 생성·목록 관리
+- **고객센터** — 문의 카테고리별 접수 (불만/건의/일반), 문의 내역 조회, 관리자 답변 확인
+- **관리자 대시보드** — `/admin`; KPI 카드, 유저 관리 (플랜 변경·크레딧 부여), 생성/이력서 등록 이력, 플랜 on/off 설정, 쿠폰 생성·목록 관리, 고객 문의 답변·상태 관리
 - **약관/개인정보처리방침** — `/terms`, `/privacy` 정적 페이지
 
 ## 기술 스택
@@ -140,7 +141,7 @@ python -m src.cli embed
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI 백엔드 — 완전 비동기 (REST + SSE + CRUD + 결제 API)
+├── api/main.py              # FastAPI 백엔드 — 완전 비동기 (REST + SSE + CRUD + 결제 + 고객센터 API)
 ├── src/
 │   ├── embedder.py           # 합격 자소서 → Parent-Child 청킹 → 임베딩 (동기, standalone)
 │   ├── parser.py             # 이력서 파싱 + Supabase 저장/조회 (async)
@@ -155,12 +156,12 @@ cover-letter/
 │   └── src/
 │       ├── app/              # 페이지: /, /welcome, /login, /signup, /history,
 │       │                     #         /projects/[id], /resumes, /mypage, /pricing,
-│       │                     #         /terms, /privacy, /auth/callback,
-│       │                     #         /payments/success, /payments/fail, /admin
-│       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card/stream
+│       │                     #         /support, /support/[id], /terms, /privacy,
+│       │                     #         /auth/callback, /payments/success, /payments/fail, /admin
+│       ├── components/       # app-shell, sidebar, navbar, footer-bar, auth-guard/provider, evaluation-card
 │       │   └── ui/           # ai-loader, bento-grid, sign-in, sign-up, stepper, badge, button, dialog…
 │       ├── hooks/            # use-navigation-guard
-│       └── lib/              # api.ts, supabase.ts
+│       └── lib/              # api.ts (adminApi, supportApi 포함), supabase.ts
 ├── migration/                # Supabase DB 마이그레이션 SQL
 │   ├── 002_companies_table.sql
 │   ├── 003_match_companies_function.sql
@@ -172,13 +173,45 @@ cover-letter/
 │   ├── 009_coupons.sql                 # coupons 테이블 + profiles.extra_generations
 │   ├── 010_soft_delete_projects.sql    # generations.deleted_at (소프트 삭제)
 │   ├── 011_company_search_credits.sql  # profiles.extra_company_searches + coupons.bonus_company_searches
-│   └── 012_birth_date.sql              # profiles.birth_date 컬럼 추가
+│   ├── 012_birth_date.sql              # profiles.birth_date 컬럼 추가
+│   ├── 013_support_tickets.sql         # support_tickets 테이블 (고객 문의)
+│   └── 014_support_replies.sql         # support_replies 테이블 (관리자 답변)
 ├── email-templates/          # Supabase Auth 이메일 템플릿
 ├── data/data.txt             # 합격 자소서 원본 (39건)
 ├── pyproject.toml            # Python 프로젝트 설정 + 의존성
 ├── PLAN.md                   # 상세 기획 문서
 └── CLAUDE.md                 # 개발 컨텍스트
 ```
+
+## 추후 업데이트 예정 사항
+
+### 핵심 기능 강화
+
+- **채용공고 URL 자동 스크래핑** — 잡코리아·사람인·링크드인 URL 입력 시 채용공고 자동 파싱
+- **자소서 버전 비교** — 초안과 재생성 버전을 나란히 비교하는 diff 뷰
+- **PDF 내보내기** — 완성된 자소서를 PDF로 다운로드 (글자수·포맷 보존)
+- **자소서 공유 링크** — 멘토/지인에게 읽기 전용 링크 공유
+
+### AI 고도화
+
+- **AI 면접 질문 예측** — 자소서 기반으로 예상 면접 질문 + 답변 가이드 생성
+- **다국어 자소서 생성** — 영문 Cover Letter 지원 (글로벌 취업 지원)
+- **AI 모델 선택** — GPT-4o / Claude / Gemini 중 선택 가능
+- **합격 자소서 데이터셋 확대** — 현재 39건 → 100건+ 확보 및 RAG 성능 향상
+
+### 사용자 경험
+
+- **채용 일정 트래커** — 지원 현황(서류/면접/최종) 관리 보드
+- **키워드 분석 리포트** — 지원 직무별 통과율 통계 및 약점 패턴 분석
+- **이메일 알림** — 평가 완료·답변 도착 시 이메일 푸시 알림
+- **모바일 앱 최적화** — PWA 대응 및 모바일 UX 개선
+
+### 인프라 & 운영
+
+- **LLM 비용 추적** — 유저별·엔드포인트별 토큰 사용량 대시보드
+- **팀/기업 계정** — 취업 컨설팅 업체용 다중 유저 관리 기능
+- **Redis 캐싱** — 회사 정보·채용공고 분석 결과 캐싱으로 응답 속도 개선
+- **GitHub/LinkedIn 포트폴리오 연동** — 프로필 자동 임포트
 
 ## 라이선스
 
