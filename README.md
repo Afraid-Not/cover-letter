@@ -31,17 +31,17 @@
 
 ## 기술 스택
 
-| 구분        | 기술                                               |
-| ----------- | -------------------------------------------------- |
-| 백엔드      | Python 3.11, FastAPI, OpenAI API (GPT-4o)          |
-| 프론트엔드  | Next.js 16, shadcn/ui, Tailwind CSS, Framer Motion |
-| DB          | Supabase (pgvector, Auth, RLS)                     |
-| 임베딩      | OpenAI text-embedding-3-small                      |
-| 이미지 파싱 | Anthropic Claude Haiku 4.5 Vision                  |
-| PDF 파싱    | PyMuPDF                                            |
-| 회사 조사   | OpenAI web search + Tavily API + DART 공시 API     |
-| 결제        | Toss Payments (빌링키 정기 구독)                   |
-| 인증        | Supabase Auth (이메일 + Google OAuth)              |
+| 구분        | 기술                                                          |
+| ----------- | ------------------------------------------------------------- |
+| 백엔드      | Python 3.11, FastAPI (완전 비동기), AsyncOpenAI (GPT-4o)      |
+| 프론트엔드  | Next.js 16, shadcn/ui, Tailwind CSS, Framer Motion            |
+| DB          | Supabase (pgvector, Auth, RLS)                                |
+| 임베딩      | OpenAI text-embedding-3-small                                 |
+| 이미지 파싱 | Anthropic AsyncAnthropic (Claude Haiku 4.5 Vision)            |
+| PDF 파싱    | PyMuPDF                                                       |
+| 회사 조사   | AsyncOpenAI + AsyncTavilyClient + httpx (DART 공시 API)       |
+| 결제        | Toss Payments (빌링키 정기 구독)                              |
+| 인증        | Supabase Auth (이메일 + Google OAuth)                         |
 
 ## 아키텍처
 
@@ -85,7 +85,7 @@ conda create -n cover-letter python=3.11 -y
 conda activate cover-letter
 
 # 의존성 설치
-uv pip install openai "supabase>=2.0" typer rich python-dotenv pymupdf "fastapi[standard]" uvicorn tavily-python requests
+uv pip install openai "supabase>=2.0" typer rich python-dotenv pymupdf "fastapi[standard]" uvicorn tavily-python httpx anthropic
 
 # .env 설정
 cp .env.example .env
@@ -140,17 +140,17 @@ python -m src.cli embed
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI 백엔드 (REST + SSE + 프로젝트 CRUD + 프로필 + 플랜 + 결제 API)
+├── api/main.py              # FastAPI 백엔드 — 완전 비동기 (REST + SSE + CRUD + 결제 API)
 ├── src/
-│   ├── embedder.py           # 합격 자소서 → Parent-Child 청킹 → 임베딩
-│   ├── parser.py             # 이력서 파싱 + Supabase 저장/조회
-│   ├── analyzer.py           # 채용공고 → 요구 역량 추출
-│   ├── researcher.py         # 회사명 → OpenAI + Tavily + DART → 미션/비전/제품·서비스/기업규모
-│   ├── retriever.py          # 벡터 유사도 검색
-│   ├── generator.py          # RAG + 자소서 생성 (회사 정보 컨텍스트 + 글자수 재시도)
-│   ├── evaluator.py          # 9명 LLM-as-a-Judge 평가
+│   ├── embedder.py           # 합격 자소서 → Parent-Child 청킹 → 임베딩 (동기, standalone)
+│   ├── parser.py             # 이력서 파싱 + Supabase 저장/조회 (async)
+│   ├── analyzer.py           # 채용공고 → 요구 역량 추출 (async)
+│   ├── researcher.py         # 회사명 → AsyncOpenAI + AsyncTavilyClient + httpx(DART) (async)
+│   ├── retriever.py          # 벡터 유사도 검색 + Parent 병렬 조회 (async)
+│   ├── generator.py          # RAG + 자소서 생성 (async, 글자수 재시도)
+│   ├── evaluator.py          # 9명 LLM-as-a-Judge 병렬 평가 (async)
 │   ├── scoring_tables.py     # 서류 통과 확률 후처리 보정 테이블
-│   └── cli.py                # Typer CLI
+│   └── cli.py                # Typer CLI (_sync() 래퍼로 async 실행)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
 │       ├── app/              # 페이지: /, /welcome, /login, /signup, /history,

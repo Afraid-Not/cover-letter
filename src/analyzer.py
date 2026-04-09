@@ -5,11 +5,11 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 ANALYZE_SYSTEM_PROMPT = """당신은 채용공고 분석 전문가입니다.
 주어진 채용공고 텍스트를 분석하여 다음 정보를 JSON으로 추출하세요.
@@ -30,9 +30,9 @@ ANALYZE_SYSTEM_PROMPT = """당신은 채용공고 분석 전문가입니다.
 - JSON만 출력하세요."""
 
 
-def analyze_job_posting(text: str) -> dict:
+async def analyze_job_posting(text: str) -> dict:
     """채용공고 텍스트에서 요구 역량과 키워드를 추출한다."""
-    response = openai_client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": ANALYZE_SYSTEM_PROMPT},

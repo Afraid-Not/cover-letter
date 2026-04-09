@@ -1,5 +1,6 @@
 """회사 정보 조회 — 캐시(companies 테이블) 우선, 미스 시 web search + DART API 후 저장"""
 
+import asyncio
 import json
 import logging
 import os
@@ -7,19 +8,19 @@ import re
 import unicodedata
 from pathlib import Path
 
-import requests
+import httpx
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 from supabase import create_client
-from tavily import TavilyClient
+from tavily import AsyncTavilyClient
 
 logger = logging.getLogger(__name__)
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 _supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-_tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+_tavily = AsyncTavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 _DART_KEY = os.getenv("DART_API_KEY", "")
 
 _SIMILARITY_THRESHOLD = 0.92
@@ -56,31 +57,35 @@ def _normalize(name: str) -> str:
     return re.sub(r"[^a-z0-9가-힣]", "", name)
 
 
-def _get_embedding(text: str) -> list[float]:
-    response = _client.embeddings.create(
+async def _get_embedding(text: str) -> list[float]:
+    response = await _client.embeddings.create(
         model="text-embedding-3-small",
         input=text[:500],
     )
     return response.data[0].embedding
 
 
-def _find_cached(name: str) -> dict | None:
+async def _find_cached(name: str) -> dict | None:
     """1단계 정규화 완전 일치 → 2단계 임베딩 유사도 순으로 캐시 조회"""
     normalized = _normalize(name)
 
     # 1단계: 정규화 완전 일치
-    exact = _supabase.table("companies").select("*").eq("name_normalized", normalized).limit(1).execute()
+    exact = await asyncio.to_thread(
+        lambda: _supabase.table("companies").select("*").eq("name_normalized", normalized).limit(1).execute()
+    )
     if exact.data:
         return exact.data[0]
 
     # 2단계: 임베딩 유사도 (match_companies RPC)
     try:
-        embedding = _get_embedding(name)
-        similar = _supabase.rpc("match_companies", {
-            "query_embedding": embedding,
-            "match_threshold": _SIMILARITY_THRESHOLD,
-            "match_count": 1,
-        }).execute()
+        embedding = await _get_embedding(name)
+        similar = await asyncio.to_thread(
+            lambda: _supabase.rpc("match_companies", {
+                "query_embedding": embedding,
+                "match_threshold": _SIMILARITY_THRESHOLD,
+                "match_count": 1,
+            }).execute()
+        )
         if similar.data:
             return similar.data[0]
     except Exception as e:
@@ -89,7 +94,7 @@ def _find_cached(name: str) -> dict | None:
     return None
 
 
-def _research_web(company: str) -> dict:
+async def _research_web(company: str) -> dict:
     """Tavily 검색 → gpt-4o로 회사 정보를 구조화한다."""
     empty = {
         "mission": None, "vision": None, "products_services": None,
@@ -97,7 +102,7 @@ def _research_web(company: str) -> dict:
     }
     try:
         # 1단계: Tavily로 회사 정보 검색
-        search_result = _tavily.search(
+        search_result = await _tavily.search(
             query=f"{company} 회사 미션 비전 사업 직원수 매출",
             search_depth="basic",
             max_results=5,
@@ -118,7 +123,7 @@ def _research_web(company: str) -> dict:
             {"role": "system", "content": "당신은 기업 정보를 JSON으로 정리하는 전문가입니다."},
             {"role": "user", "content": f"아래는 '{company}'에 대한 검색 결과입니다:\n\n{snippets}\n\n---\n\n{prompt}"},
         ]
-        response = _client.chat.completions.create(
+        response = await _client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
             temperature=0,
@@ -147,81 +152,80 @@ def _research_web(company: str) -> dict:
     return empty
 
 
-def _dart_get_company_size(company: str) -> dict:
+async def _dart_get_company_size(company: str) -> dict:
     """DART API로 상장기업 직원수·매출 조회. 미상장이면 빈 dict 반환."""
     if not _DART_KEY:
         return {}
     try:
-        # 1단계: 기업코드 검색
-        search_resp = requests.get(
-            "https://opendart.fss.or.kr/api/corpSearch.json",
-            params={"crtfc_key": _DART_KEY, "corp_name": company, "page_no": 1, "page_count": 5},
-            timeout=5,
-        )
-        search_data = search_resp.json()
-        if search_data.get("status") != "000" or not search_data.get("list"):
-            return {}
-
-        # 가장 일치도 높은 기업 선택 (정확히 이름이 같은 것 우선)
-        candidates = search_data["list"]
-        corp_code = None
-        for c in candidates:
-            if c.get("corp_name") == company:
-                corp_code = c["corp_code"]
-                break
-        if not corp_code:
-            corp_code = candidates[0]["corp_code"]
-
-        # 2단계: 직원현황 조회 (최근 사업보고서)
         import datetime
         bsns_year = str(datetime.date.today().year - 1)
-        emp_resp = requests.get(
-            "https://opendart.fss.or.kr/api/empSttus.json",
-            params={
-                "crtfc_key": _DART_KEY,
-                "corp_code": corp_code,
-                "bsns_year": bsns_year,
-                "reprt_code": "11011",  # 사업보고서
-            },
-            timeout=5,
-        )
-        emp_data = emp_resp.json()
-        employee_count = None
-        if emp_data.get("status") == "000" and emp_data.get("list"):
-            # 전체 직원수 합산 (남+여+기간제)
-            total = 0
-            for row in emp_data["list"]:
-                try:
-                    total += int(str(row.get("fyer_cn", "0")).replace(",", "") or 0)
-                except ValueError:
-                    pass
-            if total > 0:
-                employee_count = total
 
-        # 3단계: 매출 조회 (손익계산서 매출액)
-        revenue_billion = None
-        fin_resp = requests.get(
-            "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json",
-            params={
-                "crtfc_key": _DART_KEY,
-                "corp_code": corp_code,
-                "bsns_year": bsns_year,
-                "reprt_code": "11011",
-                "fs_div": "CFS",   # 연결재무제표 우선
-                "sj_div": "IS",    # 손익계산서
-            },
-            timeout=5,
-        )
-        fin_data = fin_resp.json()
-        if fin_data.get("status") == "000" and fin_data.get("list"):
-            for row in fin_data["list"]:
-                if row.get("account_nm") in ("매출액", "수익(매출액)"):
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # 1단계: 기업코드 검색
+            search_resp = await client.get(
+                "https://opendart.fss.or.kr/api/corpSearch.json",
+                params={"crtfc_key": _DART_KEY, "corp_name": company, "page_no": 1, "page_count": 5},
+            )
+            search_data = search_resp.json()
+            if search_data.get("status") != "000" or not search_data.get("list"):
+                return {}
+
+            # 가장 일치도 높은 기업 선택 (정확히 이름이 같은 것 우선)
+            candidates = search_data["list"]
+            corp_code = None
+            for c in candidates:
+                if c.get("corp_name") == company:
+                    corp_code = c["corp_code"]
+                    break
+            if not corp_code:
+                corp_code = candidates[0]["corp_code"]
+
+            # 2단계: 직원현황 조회 (최근 사업보고서)
+            emp_resp = await client.get(
+                "https://opendart.fss.or.kr/api/empSttus.json",
+                params={
+                    "crtfc_key": _DART_KEY,
+                    "corp_code": corp_code,
+                    "bsns_year": bsns_year,
+                    "reprt_code": "11011",  # 사업보고서
+                },
+            )
+            emp_data = emp_resp.json()
+            employee_count = None
+            if emp_data.get("status") == "000" and emp_data.get("list"):
+                # 전체 직원수 합산 (남+여+기간제)
+                total = 0
+                for row in emp_data["list"]:
                     try:
-                        amount = int(str(row.get("thstrm_amount", "0")).replace(",", "") or 0)
-                        revenue_billion = round(amount / 1e8, 1)  # 원 → 억원
+                        total += int(str(row.get("fyer_cn", "0")).replace(",", "") or 0)
                     except ValueError:
                         pass
-                    break
+                if total > 0:
+                    employee_count = total
+
+            # 3단계: 매출 조회 (손익계산서 매출액)
+            revenue_billion = None
+            fin_resp = await client.get(
+                "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json",
+                params={
+                    "crtfc_key": _DART_KEY,
+                    "corp_code": corp_code,
+                    "bsns_year": bsns_year,
+                    "reprt_code": "11011",
+                    "fs_div": "CFS",   # 연결재무제표 우선
+                    "sj_div": "IS",    # 손익계산서
+                },
+            )
+            fin_data = fin_resp.json()
+            if fin_data.get("status") == "000" and fin_data.get("list"):
+                for row in fin_data["list"]:
+                    if row.get("account_nm") in ("매출액", "수익(매출액)"):
+                        try:
+                            amount = int(str(row.get("thstrm_amount", "0")).replace(",", "") or 0)
+                            revenue_billion = round(amount / 1e8, 1)  # 원 → 억원
+                        except ValueError:
+                            pass
+                        break
 
         result: dict = {}
         if employee_count is not None:
@@ -255,10 +259,10 @@ def _classify_size(employee_count: int | None, revenue_billion: float | None) ->
     return "5인미만"
 
 
-def _save_company(name: str, research: dict) -> dict:
+async def _save_company(name: str, research: dict) -> dict:
     """회사 정보를 companies 테이블에 저장하고 row를 반환한다."""
     normalized = _normalize(name)
-    embedding = _get_embedding(name)
+    embedding = await _get_embedding(name)
 
     row: dict = {
         "name": name,
@@ -271,7 +275,9 @@ def _save_company(name: str, research: dict) -> dict:
         "revenue_billion": research.get("revenue_billion"),
         "company_size": research.get("company_size"),
     }
-    result = _supabase.table("companies").insert(row).execute()
+    result = await asyncio.to_thread(
+        lambda: _supabase.table("companies").insert(row).execute()
+    )
     return result.data[0]
 
 
@@ -280,12 +286,12 @@ def _is_empty_research(row: dict) -> bool:
     return not any(row.get(f) for f in ("mission", "vision", "products_services"))
 
 
-def get_or_research_company(name: str) -> dict | None:
+async def get_or_research_company(name: str) -> dict | None:
     """캐시 조회 후 없으면(또는 null뿐이면) 웹서치 + DART → 저장. companies row를 반환한다."""
     if not name or name in ("미확인", ""):
         return None
 
-    cached = _find_cached(name)
+    cached = await _find_cached(name)
     if cached and not _is_empty_research(cached):
         return cached
 
@@ -293,24 +299,26 @@ def get_or_research_company(name: str) -> dict | None:
         logger.info("[researcher] '%s' 캐시가 비어있어 재조사합니다 (id=%s)", name, cached.get("id"))
 
     # 웹서치 결과와 DART 데이터 병합 (DART 공식 공시 데이터 우선)
-    research = _research_web(name)
-    dart_data = _dart_get_company_size(name)
+    research = await _research_web(name)
+    dart_data = await _dart_get_company_size(name)
     if dart_data:
         research.update(dart_data)
 
     try:
         if cached:
             # 기존 row 업데이트
-            result = _supabase.table("companies").update({
-                "mission": research.get("mission"),
-                "vision": research.get("vision"),
-                "products_services": research.get("products_services"),
-                "employee_count": research.get("employee_count"),
-                "revenue_billion": research.get("revenue_billion"),
-                "company_size": research.get("company_size"),
-            }).eq("id", cached["id"]).execute()
+            result = await asyncio.to_thread(
+                lambda: _supabase.table("companies").update({
+                    "mission": research.get("mission"),
+                    "vision": research.get("vision"),
+                    "products_services": research.get("products_services"),
+                    "employee_count": research.get("employee_count"),
+                    "revenue_billion": research.get("revenue_billion"),
+                    "company_size": research.get("company_size"),
+                }).eq("id", cached["id"]).execute()
+            )
             return result.data[0]
-        return _save_company(name, research)
+        return await _save_company(name, research)
     except Exception as e:
         logger.error("[researcher] companies 테이블 저장 실패 (%s): %s", name, e, exc_info=True)
         return None

@@ -6,7 +6,7 @@
 
 ## 기술 스택
 
-- **백엔드**: Python 3.11, FastAPI, OpenAI API (GPT-4o), Supabase (pgvector)
+- **백엔드**: Python 3.11, FastAPI, AsyncOpenAI (GPT-4o), Supabase (pgvector), httpx, AsyncTavilyClient
 - **프론트엔드**: Next.js 16, shadcn/ui, Tailwind CSS, Framer Motion
 - **DB**: Supabase (pgvector, Auth, RLS)
 - **패키지 관리**: conda (env: cover-letter), uv pip install
@@ -31,17 +31,17 @@ npm run dev
 
 ```
 cover-letter/
-├── api/main.py              # FastAPI — REST + SSE 스트리밍 + 프로젝트 CRUD + 프로필 + 플랜 API
+├── api/main.py              # FastAPI — 완전 비동기 REST + SSE 스트리밍 + 프로젝트 CRUD + 프로필 + 플랜 API
 ├── src/
-│   ├── embedder.py           # data.txt → Parent-Child 청킹 → 임베딩 → Supabase
-│   ├── parser.py             # 이력서 파싱 (텍스트/PDF) → 구조화 → Supabase 저장
-│   ├── analyzer.py           # 채용공고 텍스트 → 요구 역량/키워드 추출
-│   ├── researcher.py         # 회사명 → OpenAI + Tavily + DART → 미션/비전/제품·서비스/기업규모 → dict 반환
-│   ├── retriever.py          # Supabase 벡터 유사도 검색 (Child 검색 + Parent 컨텍스트)
-│   ├── generator.py          # RAG + 이력서 + 채용공고 + 회사 정보 → 자소서 생성/재생성 (글자수 ±10% 재시도)
-│   ├── evaluator.py          # 9명 LLM-as-a-Judge 병렬 평가 + SSE 스트리밍
+│   ├── embedder.py           # data.txt → Parent-Child 청킹 → 임베딩 → Supabase (동기, standalone)
+│   ├── parser.py             # 이력서 파싱 (텍스트/PDF) → 구조화 → Supabase 저장 (async)
+│   ├── analyzer.py           # 채용공고 텍스트 → 요구 역량/키워드 추출 (async)
+│   ├── researcher.py         # 회사명 → AsyncOpenAI + AsyncTavilyClient + httpx(DART) → dict 반환 (async)
+│   ├── retriever.py          # Supabase 벡터 유사도 검색 + Parent 병렬 조회 (async)
+│   ├── generator.py          # RAG + 이력서 + 채용공고 + 회사 정보 → 자소서 생성/재생성 (async, 글자수 ±10% 재시도)
+│   ├── evaluator.py          # 9명 LLM-as-a-Judge 병렬 평가 + SSE 스트리밍 (async)
 │   ├── scoring_tables.py     # 서류 통과 확률 후처리 보정 테이블 (대학 티어/전공/나이/학력/기업규모)
-│   └── cli.py                # Typer CLI (프론트 없이 사용 가능)
+│   └── cli.py                # Typer CLI (_sync() 래퍼로 async 함수 동기 실행)
 ├── frontend/                 # Next.js 16 대시보드
 │   └── src/
 │       ├── app/              # 페이지: /, /welcome, /login, /signup, /history, /projects/[id], /resumes, /mypage, /pricing, /terms, /privacy, /admin, /auth/callback, /payments/success, /payments/fail (※ /onboarding 삭제됨 → /signup?oauth=google으로 통합)
@@ -286,8 +286,26 @@ AI 평가 점수에 추가 보정을 적용해 현실적인 통과 확률을 산
 | GET    | `/api/admin/coupons`                           | 관리자: 쿠폰 목록 조회                                   |
 | POST   | `/api/admin/coupons`                           | 관리자: 쿠폰 생성 (7일 만료)                             |
 
+## 비동기 아키텍처
+
+### 백엔드 (Python)
+- **OpenAI**: 모든 모듈에서 `AsyncOpenAI` 사용 (`embedder.py` 제외 — standalone 동기 스크립트)
+- **Tavily**: `AsyncTavilyClient` (`researcher.py`)
+- **DART API**: `httpx.AsyncClient` (`researcher.py`, `requests` 제거됨)
+- **Anthropic**: `AsyncAnthropic` (`api/main.py` parse-image 엔드포인트)
+- **Supabase**: 동기 클라이언트 유지, `asyncio.to_thread(lambda: ...)` 또는 `asyncio.to_thread(fn)` 으로 래핑
+  - `api/main.py`: `async def _run(fn)` 헬퍼 → 모든 `sb.table(...).execute()` 호출 래핑
+  - `src/` 모듈: 각 함수 내에서 직접 `asyncio.to_thread` 사용
+- **병렬화**: `asyncio.gather`로 독립 쿼리 병렬 실행 (`_count_monthly_usage`, `/api/activity`, `/api/projects/{id}`, `/api/admin/stats`, `/api/usage`)
+- **CLI**: `_sync(coro)` 래퍼 (`asyncio.run`) 로 async 함수를 동기 실행
+
+### 프론트엔드 (TypeScript)
+- **API 에러 처리**: `_json` 헬퍼 — `r.ok` 검증 후 에러 시 throw, 성공 시 `r.json()` 반환; 자체 에러 처리 함수(generate, updateProject 등)는 미적용
+- **SSE 스트리밍**: `evaluateStream` — `res.ok` 검증 + `try/finally { reader.cancel() }` + `JSON.parse` try-catch + summary null 체크
+- **Auth Provider**: role 조회 useEffect에 `cancelled` 플래그 + `Promise.resolve()` 래핑 + `.catch()` fallback
+
 ## 코드 컨벤션
 
-- Python: 타입 힌트 사용
+- Python: 타입 힌트 사용, async 함수 우선
 - TypeScript: arrow function 사용, shadcn/ui 컴포넌트 기반
 - 커밋 메시지: 한국어 가능, Co-Authored-By 포함

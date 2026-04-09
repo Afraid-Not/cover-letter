@@ -10,13 +10,21 @@ const getAuthHeaders = async (): Promise<Record<string, string>> => {
     : { "Content-Type": "application/json" };
 };
 
+const _json = async (r: Response) => {
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || `요청 실패 (${r.status})`);
+  }
+  return r.json();
+};
+
 export const api = {
   analyzeJob: (text: string) =>
     fetch(`${API_BASE}/api/analyze-job`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
-    }).then((r) => r.json()),
+    }).then(_json),
 
   generate: async (data: {
     question: string;
@@ -53,18 +61,16 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
-    }).then((r) => r.json()),
+    }).then(_json),
 
   getResume: async (id: number) => {
     const headers = await getAuthHeaders();
-    return fetch(`${API_BASE}/api/resumes/${id}`, { headers }).then((r) =>
-      r.json(),
-    );
+    return fetch(`${API_BASE}/api/resumes/${id}`, { headers }).then(_json);
   },
 
   listResumes: async () => {
     const headers = await getAuthHeaders();
-    return fetch(`${API_BASE}/api/resumes`, { headers }).then((r) => r.json());
+    return fetch(`${API_BASE}/api/resumes`, { headers }).then(_json);
   },
 
   addResume: async (source: string, name?: string) => {
@@ -73,7 +79,7 @@ export const api = {
       method: "POST",
       headers,
       body: JSON.stringify({ source, name }),
-    }).then((r) => r.json());
+    }).then(_json);
   },
 
   updateResume: async (
@@ -85,7 +91,7 @@ export const api = {
       method: "PATCH",
       headers,
       body: JSON.stringify(fields),
-    }).then((r) => r.json());
+    }).then(_json);
   },
 
   deleteResume: async (id: number) => {
@@ -93,7 +99,7 @@ export const api = {
     return fetch(`${API_BASE}/api/resumes/${id}`, {
       method: "DELETE",
       headers,
-    }).then((r) => r.json());
+    }).then(_json);
   },
 
   uploadResume: async (file: File, name?: string) => {
@@ -106,7 +112,7 @@ export const api = {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
-    }).then((r) => r.json());
+    }).then(_json);
   },
 
   parseImage: (file: File) => {
@@ -115,14 +121,13 @@ export const api = {
     return fetch(`${API_BASE}/api/parse-image`, {
       method: "POST",
       body: formData,
-    }).then((r) => r.json());
+    }).then(_json);
   },
 
-  listGenerations: () =>
-    fetch(`${API_BASE}/api/generations`).then((r) => r.json()),
+  listGenerations: () => fetch(`${API_BASE}/api/generations`).then(_json),
 
   getGeneration: (id: number) =>
-    fetch(`${API_BASE}/api/generations/${id}`).then((r) => r.json()),
+    fetch(`${API_BASE}/api/generations/${id}`).then(_json),
 
   saveGeneration: (data: {
     job_posting: string;
@@ -139,7 +144,7 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
-    }).then((r) => r.json()),
+    }).then(_json),
 
   // ── 프로젝트 CRUD ──
 
@@ -149,7 +154,7 @@ export const api = {
       method: "POST",
       headers,
       body: JSON.stringify({ job_posting }),
-    }).then((r) => r.json());
+    }).then(_json);
   },
 
   researchCompany: async (projectId: number): Promise<Project> => {
@@ -157,24 +162,22 @@ export const api = {
     return fetch(`${API_BASE}/api/projects/${projectId}/research`, {
       method: "POST",
       headers,
-    }).then((r) => r.json());
+    }).then(_json);
   },
 
   listActivity: async (): Promise<ActivityEvent[]> => {
     const headers = await getAuthHeaders();
-    return fetch(`${API_BASE}/api/activity`, { headers }).then((r) => r.json());
+    return fetch(`${API_BASE}/api/activity`, { headers }).then(_json);
   },
 
   listProjects: async (): Promise<Project[]> => {
     const headers = await getAuthHeaders();
-    return fetch(`${API_BASE}/api/projects`, { headers }).then((r) => r.json());
+    return fetch(`${API_BASE}/api/projects`, { headers }).then(_json);
   },
 
   getProject: async (id: number): Promise<Project> => {
     const headers = await getAuthHeaders();
-    return fetch(`${API_BASE}/api/projects/${id}`, { headers }).then((r) =>
-      r.json(),
-    );
+    return fetch(`${API_BASE}/api/projects/${id}`, { headers }).then(_json);
   },
 
   updateProject: async (
@@ -338,9 +341,7 @@ export const api = {
 
   getProfile: async () => {
     const headers = await getAuthHeaders();
-    return fetch(`${API_BASE}/api/profiles/me`, { headers }).then((r) =>
-      r.json(),
-    );
+    return fetch(`${API_BASE}/api/profiles/me`, { headers }).then(_json);
   },
 
   saveProfile: async (data: {
@@ -361,7 +362,7 @@ export const api = {
       method: "POST",
       headers,
       body: JSON.stringify(data),
-    }).then((r) => r.json());
+    }).then(_json);
   },
 
   deleteAccount: async () => {
@@ -390,32 +391,48 @@ export const api = {
       body: JSON.stringify(data),
     });
 
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `평가 실패 (${res.status})`);
+    }
+
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let summary: EvalSummary | null = null;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      const lines = buffer.split("\n\n");
-      buffer = lines.pop() || "";
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
 
-      for (const line of lines) {
-        const cleaned = line.replace(/^data: /, "").trim();
-        if (!cleaned) continue;
-        const parsed = JSON.parse(cleaned);
-        if (parsed.type === "summary") {
-          summary = parsed;
-        } else {
-          onEvaluator(parsed);
+        for (const line of lines) {
+          const cleaned = line.replace(/^data: /, "").trim();
+          if (!cleaned) continue;
+          try {
+            const parsed = JSON.parse(cleaned);
+            if (parsed.type === "summary") {
+              summary = parsed;
+            } else {
+              onEvaluator(parsed);
+            }
+          } catch {
+            // 잘못된 JSON 청크는 무시
+          }
         }
       }
+    } finally {
+      reader.cancel();
     }
 
-    return summary!;
+    if (!summary) {
+      throw new Error("평가 결과를 받지 못했습니다");
+    }
+    return summary;
   },
 };
 
