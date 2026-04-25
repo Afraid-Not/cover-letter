@@ -10,7 +10,7 @@
 - **Supabase JS** — Auth 세션 관리, RLS
 - **Toss Payments SDK** — 구독 결제 위젯
 - **Vercel Analytics** — 웹 분석
-- **Lucide React** — 아이콘
+- **Lucide React** — 아이콘 
 
 ## 개발 서버 실행
 
