@@ -26,6 +26,7 @@ npm run dev
 
 - FastAPI: http://localhost:8000 (docs: /docs)
 - Next.js: http://localhost:3000
+.
 
 ## 파일 구조
 
